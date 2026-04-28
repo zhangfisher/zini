@@ -68,9 +68,9 @@ exe.root_module.addImport("zini", ini_module);
 ```zig
 .dependencies = .{
     .zini = .{
-        .url = "https://github.com/yourusername/zini/archive/main.tar.gz",
+        .url = "https://github.com/zhangfisher/zini/archive/master.tar.gz",
         .hash = "1220...", // 使用 zig build 命令获取正确的 hash
-    },
+    }
 }
 ```
 
