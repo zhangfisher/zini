@@ -47,11 +47,22 @@ enabled:bool = true
 - **行尾注释** - 支持 `//` 和 `#` 行尾注释
 - **多格式数字** - 支持十进制、二进制 (`0b`)、十六进制 (`0x`)
 
-## 📦 编译和安装
+## 📦 安装
 
-### Zig 项目集成
+### 通过 Zig 包管理器安装（推荐）
 
-在你的 `build.zig` 中添加：
+**在你的项目 `build.zig.zon` 中添加依赖：**
+
+```zig
+.dependencies = .{
+    .zini = .{
+        .url = "https://github.com/zhangfisher/zini/archive/master.tar.gz",
+        .hash = "1220...", // 使用 zig build 命令获取正确的 hash
+    }
+}
+```
+
+**在你的项目 `build.zig` 中导入模块：**
 
 ```zig
 const zini = b.dependency("zini", .{
@@ -63,15 +74,82 @@ const ini_module = zini.module("zini");
 exe.root_module.addImport("zini", ini_module);
 ```
 
-在你的 `build.zig.zon` 中添加：
+**获取正确的 hash：**
+
+```bash
+# 首次添加依赖时，让 Zig 自动计算 hash
+zig build
+```
+
+### 从源码安装
+
+**克隆仓库：**
+
+```bash
+git clone https://github.com/zhangfisher/zini.git
+cd zini
+```
+
+**验证安装：**
+
+```bash
+# 运行测试
+zig build test
+
+# 运行示例
+zig build run
+
+# 查看所有可用命令
+zig build --list-steps
+```
+
+**本地项目引用：**
+
+如果你在本地开发或想使用本地副本：
 
 ```zig
+// 在 build.zig.zon 中
 .dependencies = .{
     .zini = .{
-        .url = "https://github.com/zhangfisher/zini/archive/master.tar.gz",
-        .hash = "1220...", // 使用 zig build 命令获取正确的 hash
-    }
+        .path = "../zini",  // 相对路径
+    },
 }
+```
+
+### 系统要求
+
+- **最低 Zig 版本**: 0.16.0
+- **推荐 Zig 版本**: 0.16.0 或更高
+- **操作系统**: Windows, Linux, macOS
+- **架构**: x86_64, ARM64, ARM32
+
+### 验证安装
+
+创建一个简单的测试文件 `test.zig`：
+
+```zig
+const std = @import("std");
+const Ini = @import("zini").Ini;
+
+pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+
+    var ini = Ini.init(allocator);
+    defer ini.deinit();
+
+    try ini.set("test", "success");
+    std.debug.print("zini 安装成功！\n", .{});
+}
+```
+
+运行测试：
+
+```bash
+zig build-exe test.zig --mod zini:zini
+./test  # Linux/macOS
+test.exe  # Windows
 ```
 
 ### C 语言集成
