@@ -22,7 +22,7 @@ pub const ini = @import("ini.zig");
 // 重新导出主要类型以便用户直接使用
 pub const Ini = ini.Ini;
 pub const Section = ini.Section;
-pub const Entry = ini.Entry;
+pub const Schema = ini.Schema;
 pub const Error = ini.Error;
 
 test "root module test" {
@@ -30,7 +30,7 @@ test "root module test" {
     const testing = std.testing;
     _ = Ini;
     _ = Section;
-    _ = Entry;
+    _ = Schema;
     _ = Error;
     _ = DataType;
     try testing.expect(true);

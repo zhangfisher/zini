@@ -8,7 +8,7 @@
 
 - **类型安全** - 自动类型推断 + 显式类型标注 + 类型安全的值访问
 - **简单的 API 设计** - 直观的接口，易于使用
-- **完整的 INI 支持** - Sections、全局键值对、注释、数组
+- **完整的 INI 支持** - Sections、全局键值对、注释
 - **内存安全** - 完善的内存管理，无泄漏
 - **零依赖** - 仅依赖 Zig 标准库
 - **高性能** - 高效的解析和序列化
@@ -20,7 +20,6 @@
 - 整数：`i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `int`
 - 浮点数：`f32`, `f64`, `float`
 - 字符串：`string`
-- 数组：`array`
 
 **类型推断：**
 ```ini
@@ -29,7 +28,6 @@ debug = true          # bool
 port = 8080           # int
 timeout = 30.5        # float
 name = "myapp"        # string
-ports = [80, 443]     # array
 ```
 
 **显式类型标注：**
@@ -42,8 +40,6 @@ enabled:bool = true
 
 ### 🔧 高级特性
 
-- **位标识合并** - 自动合并 `key.subkey` 格式的位标识
-- **数组支持** - 支持数组值和类型转换
 - **行尾注释** - 支持 `//` 和 `#` 行尾注释
 - **多格式数字** - 支持十进制、二进制 (`0b`)、十六进制 (`0x`)
 
@@ -318,50 +314,7 @@ const entry = ini.getEntry("count").?;
 std.debug.print("Type: {}\n", .{entry.datatype}); // u32
 ```
 
-### 3. 数组支持
-
-支持数组值的解析和访问：
-
-```ini
-ports = [80, 443, 8080]
-allowed_ips = [192.168.1.1, 10.0.0.1]
-```
-
-```zig
-// 获取数组
-if (ini.getArray("ports")) |ports| {
-    for (ports) |port_str| {
-        const port = try std.fmt.parseInt(u16, port_str, 10);
-        std.debug.print("Port: {}\n", .{port});
-    }
-}
-
-// Section 数组
-if (ini.getSectionArray("server", "ports")) |ports| {
-    // ...
-}
-```
-
-### 4. 位标识合并
-
-自动合并 `key.subkey` 格式的位标识：
-
-```ini
-# 定义位标识
-file.read = 1
-file.write = 2
-file.execute = 4
-
-# 自动合并为 file = 7 (1 | 2 | 4)
-```
-
-```zig
-// 访问合并后的值
-const file_perms = try ini.getU8("file");
-std.debug.print("File permissions: {}\n", .{file_perms}); // 7
-```
-
-### 5. 类型安全的值访问
+### 3. 类型安全的值访问
 
 使用类型化的 getter 方法确保类型安全：
 
@@ -384,7 +337,7 @@ const value = try ini.getInt("key");    // i64
 const num = try ini.getFloat("key");    // f64
 ```
 
-### 6. Section 操作
+### 4. Section 操作
 
 ```zig
 // 检查 section 是否存在
@@ -406,7 +359,7 @@ _ = ini.removeSection("old_section");
 const section = try ini.getOrCreateSection("new_section");
 ```
 
-### 7. 注释支持
+### 5. 注释支持
 
 支持多种注释风格：
 
@@ -419,7 +372,7 @@ key = value // 行尾注释
 key2 = "value // not a comment" # 引号内的不是注释
 ```
 
-### 8. 多格式数字
+### 6. 多格式数字
 
 支持十进制、二进制、十六进制：
 
@@ -481,8 +434,6 @@ zig test src/types.zig
 
 - `simple_types.zig` - 类型推断示例
 - `type_annotation.zig` - 显式类型标注
-- `arrays.zig` - 数组使用
-- `bitmerge.zig` - 位标识合并
 - `chinese_test.zig` - 中文支持
 
 运行示例：
@@ -490,8 +441,6 @@ zig test src/types.zig
 ```bash
 zig build run           # 主程序
 zig build simple_types  # 类型示例
-zig build arrays        # 数组示例
-zig build bitmerge      # 位合并示例
 ```
 
 ## 🏗️ 设计原则

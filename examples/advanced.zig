@@ -24,21 +24,21 @@ pub fn main() !void {
         try config.set("app.debug", "true");
 
         // 服务器配置
-        try config.setSection("server", "host", "0.0.0.0");
-        try config.setSection("server", "port", "8080");
-        try config.setSection("server", "workers", "4");
+        try config.set("server.host", "0.0.0.0");
+        try config.set("server.port", "8080");
+        try config.set("server.workers", "4");
 
         // 数据库配置
-        try config.setSection("database", "driver", "postgresql");
-        try config.setSection("database", "host", "localhost");
-        try config.setSection("database", "port", "5432");
-        try config.setSection("database", "database", "mydb");
-        try config.setSection("database", "username", "user");
-        try config.setSection("database", "password", "pass");
+        try config.set("database.driver", "postgresql");
+        try config.set("database.host", "localhost");
+        try config.set("database.port", "5432");
+        try config.set("database.database", "mydb");
+        try config.set("database.username", "user");
+        try config.set("database.password", "pass");
 
         // 日志配置
-        try config.setSection("logging", "level", "info");
-        try config.setSection("logging", "file", "/var/log/app.log");
+        try config.set("logging.level", "info");
+        try config.set("logging.file", "/var/log/app.log");
 
         const content = try config.saveToString(allocator);
         defer allocator.free(content);
@@ -72,8 +72,8 @@ pub fn main() !void {
 
         // 读取配置值
         const app_name = config.get("app.name").?;
-        const server_port = config.getSection("server", "port").?;
-        const db_host = config.getSection("database", "host").?;
+        const server_port = config.get("server.port").?;
+        const db_host = config.get("database.host").?;
 
         std.debug.print("应用名称: {s}\n", .{app_name});
         std.debug.print("服务器端口: {s}\n", .{server_port});
@@ -87,19 +87,19 @@ pub fn main() !void {
         defer config.deinit();
 
         // 加载初始配置
-        try config.setSection("app", "name", "OldName");
-        try config.setSection("app", "version", "1.0.0");
+        try config.set("app.name", "OldName");
+        try config.set("app.version", "1.0.0");
 
         std.debug.print("修改前:\n", .{});
-        std.debug.print("  名称: {s}\n", .{config.getSection("app", "name").?});
+        std.debug.print("  名称: {s}\n", .{config.get("app.name").?});
 
         // 修改配置
-        try config.setSection("app", "name", "NewName");
-        try config.setSection("app", "version", "2.0.0");
+        try config.set("app.name", "NewName");
+        try config.set("app.version", "2.0.0");
 
         std.debug.print("修改后:\n", .{});
-        std.debug.print("  名称: {s}\n", .{config.getSection("app", "name").?});
-        std.debug.print("  版本: {s}\n", .{config.getSection("app", "version").?});
+        std.debug.print("  名称: {s}\n", .{config.get("app.name").?});
+        std.debug.print("  版本: {s}\n", .{config.get("app.version").?});
     }
 
     // 示例 4: 检查和操作 Sections
@@ -108,8 +108,8 @@ pub fn main() !void {
         var config = Ini.init(allocator);
         defer config.deinit();
 
-        try config.setSection("section1", "key1", "value1");
-        try config.setSection("section2", "key2", "value2");
+        try config.set("section1.key1", "value1");
+        try config.set("section2.key2", "value2");
 
         // 检查 section 是否存在
         std.debug.print("section1 存在: {}\n", .{config.hasSection("section1")});
@@ -127,7 +127,7 @@ pub fn main() !void {
         defer config.deinit();
 
         try config.set("temp", "value");
-        try config.setSection("temp_section", "key", "value");
+        try config.set("temp_section.key", "value");
 
         // 保存到文件
         try config.save("temp_config.ini");
@@ -159,7 +159,7 @@ pub fn main() !void {
         }
 
         // 尝试从不存在的 section 读取
-        if (config.getSection("nonexistent", "key")) |value| {
+        if (config.get("nonexistent.key")) |value| {
             std.debug.print("值: {s}\n", .{value});
         } else {
             std.debug.print("Section 或键不存在\n", .{});

@@ -150,15 +150,15 @@ pub fn main() !void {
         try config.loadFromString(config_content);
 
         std.debug.print("寄存器配置:\n", .{});
-        std.debug.print("  port_a: 0b{b:0>8}\n", .{try config.getSectionU8("registers", "port_a")});
-        std.debug.print("  port_b: 0x{X:0>2}\n", .{try config.getSectionU8("registers", "port_b")});
-        std.debug.print("  control: 0x{X:0>4}\n", .{try config.getSectionU16("registers", "control")});
-        std.debug.print("  status: 0b{b:0>8}\n", .{try config.getSectionU8("registers", "status")});
+        std.debug.print("  port_a: 0b{b:0>8}\n", .{try config.getU8("registers.port_a")});
+        std.debug.print("  port_b: 0x{X:0>2}\n", .{try config.getU8("registers.port_b")});
+        std.debug.print("  control: 0x{X:0>4}\n", .{try config.getU16("registers.control")});
+        std.debug.print("  status: 0b{b:0>8}\n", .{try config.getU8("registers.status")});
 
         std.debug.print("内存配置:\n", .{});
-        std.debug.print("  stack_start: 0x{X:0>4}\n", .{try config.getSectionU16("memory", "stack_start")});
-        std.debug.print("  heap_start: 0x{X:0>4}\n", .{try config.getSectionU16("memory", "heap_start")});
-        std.debug.print("  vector_table: 0x{X:0>4}\n", .{try config.getSectionU16("memory", "vector_table")});
+        std.debug.print("  stack_start: 0x{X:0>4}\n", .{try config.getU16("memory.stack_start")});
+        std.debug.print("  heap_start: 0x{X:0>4}\n", .{try config.getU16("memory.heap_start")});
+        std.debug.print("  vector_table: 0x{X:0>4}\n", .{try config.getU16("memory.vector_table")});
 
         std.debug.print("  ✓ Section 进制混合成功\n\n", .{});
     }
@@ -199,14 +199,14 @@ pub fn main() !void {
 
         std.debug.print("显示配置:\n", .{});
         std.debug.print("  width: {} (0x{X})\n", .{
-            try config.getSectionU16("display", "width"),
-            try config.getSectionU16("display", "width")
+            try config.getU16("display.width"),
+            try config.getU16("display.width")
         });
         std.debug.print("  height: {} (0x{X})\n", .{
-            try config.getSectionU16("display", "height"),
-            try config.getSectionU16("display", "height")
+            try config.getU16("display.height"),
+            try config.getU16("display.height")
         });
-        std.debug.print("  format: 0b{b:0>8}\n", .{try config.getSectionU8("display", "format")});
+        std.debug.print("  format: 0b{b:0>8}\n", .{try config.getU8("display.format")});
 
         std.debug.print("  ✓ 行尾注释与进制混合成功\n\n", .{});
     }

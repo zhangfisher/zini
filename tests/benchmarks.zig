@@ -35,8 +35,8 @@ pub fn main() !void {
 
         // 验证解析结果
         const app_name = ini.get("app_name").?;
-        const db_host = ini.getSection("database", "host").?;
-        const server_port = ini.getSection("server", "port").?;
+        const db_host = ini.get("database.host").?;
+        const server_port = ini.get("server.port").?;
 
         std.debug.print("  ✓ 应用名称: {s}\n", .{app_name});
         std.debug.print("  ✓ 数据库主机: {s}\n", .{db_host});
@@ -50,8 +50,8 @@ pub fn main() !void {
         defer ini.deinit();
 
         try ini.set("test_key", "test_value");
-        try ini.setSection("section1", "key1", "value1");
-        try ini.setSection("section1", "key2", "value2");
+        try ini.set("section1.key1", "value1");
+        try ini.set("section1.key2", "value2");
 
         const content = try ini.saveToString(allocator);
         std.debug.print("  ✓ 序列化成功\n", .{});
@@ -74,8 +74,10 @@ pub fn main() !void {
         var i: usize = 0;
         while (i < 100) : (i += 1) {
             const section = try std.fmt.allocPrint(allocator, "section{d}", .{i});
-            try ini.setSection(section, "key1", "value1");
-            try ini.setSection(section, "key2", "value2");
+            const key1 = try std.fmt.allocPrint(allocator, "{s}.key1", .{section});
+            const key2 = try std.fmt.allocPrint(allocator, "{s}.key2", .{section});
+            try ini.set(key1, "value1");
+            try ini.set(key2, "value2");
         }
 
         std.debug.print("  ✓ 添加了 {d} 个配置段\n", .{i});
@@ -90,15 +92,15 @@ pub fn main() !void {
 
         try ini.set("key1", "value1");
         try ini.set("key2", "value2");
-        try ini.setSection("section1", "key1", "value1");
-        try ini.setSection("section1", "key2", "value2");
+        try ini.set("section1.key1", "value1");
+        try ini.set("section1.key2", "value2");
 
         // 执行大量查找
         var found: usize = 0;
         var i: usize = 0;
         while (i < 1000) : (i += 1) {
             if (ini.get("key1")) |_| found += 1;
-            if (ini.getSection("section1", "key1")) |_| found += 1;
+            if (ini.get("section1.key1")) |_| found += 1;
         }
 
         std.debug.print("  ✓ 执行了 {d} 次查找\n", .{i * 2});

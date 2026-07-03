@@ -41,10 +41,6 @@ pub const DataType = enum(u8) {
     /// 浮点数（自动推断）
     float = 22,
 
-    // 数组类型标记
-    /// 数组类型（具体元素类型由 Entry.array_datatype 指定）
-    array = 30,
-
     /// 获取类型名称
     pub fn typeName(self: DataType) []const u8 {
         return switch (self) {
@@ -62,7 +58,6 @@ pub const DataType = enum(u8) {
             .f32 => "f32",
             .f64 => "f64",
             .float => "f64",
-            .array => "array",
         };
     }
 
@@ -149,6 +144,72 @@ pub const DataType = enum(u8) {
         } else {
             return .u64;
         }
+    }
+
+    /// 根据数值大小推断合适的有符号整数类型
+    pub fn inferSignedValueSize(value: i64) DataType {
+        if (value >= std.math.minInt(i8) and value <= std.math.maxInt(i8)) {
+            return .i8;
+        } else if (value >= std.math.minInt(i16) and value <= std.math.maxInt(i16)) {
+            return .i16;
+        } else if (value >= std.math.minInt(i32) and value <= std.math.maxInt(i32)) {
+            return .i32;
+        } else {
+            return .i64;
+        }
+    }
+
+    /// 智能推断值的具体类型（区分有符号/无符号及具体大小）
+    pub fn inferSmart(str: []const u8) DataType {
+        const trimmed = std.mem.trim(u8, str, " \t\r\n");
+
+        if (trimmed.len == 0) {
+            return .string;
+        }
+
+        // 检查布尔值
+        if (isBoolValue(trimmed)) {
+            return .bool;
+        }
+
+        // 检查浮点数
+        if (isFloatValue(trimmed)) {
+            return .float;
+        }
+
+        // 检查整数
+        if (isIntegerValue(trimmed)) {
+            // 检查是否有符号（负数）
+            const has_sign = trimmed[0] == '-';
+
+            if (has_sign) {
+                // 有符号整数
+                if (std.fmt.parseInt(i64, trimmed, 10)) |value| {
+                    return inferSignedValueSize(value);
+                } else |_| {
+                    return .int;
+                }
+            } else {
+                // 无符号整数
+                if (std.fmt.parseInt(u64, trimmed, 10)) |value| {
+                    return inferValueSize(value);
+                } else |_| {
+                    return .int;
+                }
+            }
+        }
+
+        // 默认为字符串
+        return .string;
+    }
+
+    /// 检查是否需要在写入时省略类型标注
+    /// u16, string, bool 是最常见的类型，可以省略
+    pub fn shouldOmitTypeAnnotation(self: DataType) bool {
+        return switch (self) {
+            .u16, .string, .bool => true,
+            else => false,
+        };
     }
 };
 

@@ -43,15 +43,15 @@ pub fn main() !void {
     std.debug.print("  路径: {s}\n", .{config.get("路径").?});
 
     std.debug.print("\n数据库配置:\n", .{});
-    std.debug.print("  主机: {s}\n", .{config.getSection("数据库", "主机").?});
-    std.debug.print("  名称: {s}\n", .{config.getSection("数据库", "名称").?});
-    std.debug.print("  编码: {s}\n", .{config.getSection("数据库", "编码").?});
+    std.debug.print("  主机: {s}\n", .{config.get("数据库.主机").?});
+    std.debug.print("  名称: {s}\n", .{config.get("数据库.名称").?});
+    std.debug.print("  编码: {s}\n", .{config.get("数据库.编码").?});
 
     std.debug.print("\n用户界面配置:\n", .{});
-    std.debug.print("  标题: {s}\n", .{config.getSection("用户界面", "标题").?});
-    std.debug.print("  提示: {s}\n", .{config.getSection("用户界面", "提示").?});
-    std.debug.print("  按钮确定: {s}\n", .{config.getSection("用户界面", "按钮确定").?});
-    std.debug.print("  按钮取消: {s}\n", .{config.getSection("用户界面", "按钮取消").?});
+    std.debug.print("  标题: {s}\n", .{config.get("用户界面.标题").?});
+    std.debug.print("  提示: {s}\n", .{config.get("用户界面.提示").?});
+    std.debug.print("  按钮确定: {s}\n", .{config.get("用户界面.按钮确定").?});
+    std.debug.print("  按钮取消: {s}\n", .{config.get("用户界面.按钮取消").?});
 
     std.debug.print("\n✓ 中文支持正常！\n", .{});
 }

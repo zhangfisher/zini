@@ -95,23 +95,6 @@ pub fn build(b: *std.Build) void {
     const number_bases_cmd = b.addRunArtifact(number_bases_exe);
     number_bases_step.dependOn(&number_bases_cmd.step);
 
-    // 数组功能演示可执行文件
-    const arrays_exe = b.addExecutable(.{
-        .name = "arrays",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("examples/arrays.zig"),
-            .target = target,
-            .optimize = optimize,
-            .imports = &.{
-                .{ .name = "zini", .module = mod },
-            },
-        }),
-    });
-
-    const arrays_step = b.step("arrays", "Run arrays demo");
-    const arrays_cmd = b.addRunArtifact(arrays_exe);
-    arrays_step.dependOn(&arrays_cmd.step);
-
     const types_exe = b.addExecutable(.{
         .name = "types_demo",
         .root_module = b.createModule(.{
@@ -128,22 +111,77 @@ pub fn build(b: *std.Build) void {
     const types_demo_cmd = b.addRunArtifact(types_exe);
     types_demo_step.dependOn(&types_demo_cmd.step);
 
-    // 位合并演示可执行文件
-    const bit_merge_exe = b.addExecutable(.{
-        .name = "bit_merge",
+    // 保存时不指定路径演示可执行文件
+    const save_without_path_exe = b.addExecutable(.{
+        .name = "save_without_path",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("examples/bit_merge.zig"),
+            .root_source_file = b.path("examples/save_without_path.zig"),
             .target = target,
             .optimize = optimize,
             .imports = &.{
                 .{ .name = "zini", .module = mod },
             },
+            .link_libc = true,
         }),
     });
 
-    const bit_merge_step = b.step("bitmerge", "Run bit merge demo");
-    const bit_merge_cmd = b.addRunArtifact(bit_merge_exe);
-    bit_merge_step.dependOn(&bit_merge_cmd.step);
+    const save_without_path_step = b.step("save_demo", "Run save without path demo");
+    const save_without_path_cmd = b.addRunArtifact(save_without_path_exe);
+    save_without_path_step.dependOn(&save_without_path_cmd.step);
+
+    // 路径语法演示可执行文件
+    const path_syntax_exe = b.addExecutable(.{
+        .name = "path_syntax",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/path_syntax.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "zini", .module = mod },
+            },
+            .link_libc = true,
+        }),
+    });
+
+    const path_syntax_step = b.step("path_syntax", "Run path syntax demo");
+    const path_syntax_cmd = b.addRunArtifact(path_syntax_exe);
+    path_syntax_step.dependOn(&path_syntax_cmd.step);
+
+    // 智能类型演示可执行文件
+    const smart_types_exe = b.addExecutable(.{
+        .name = "smart_types",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/smart_types.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "zini", .module = mod },
+            },
+            .link_libc = true,
+        }),
+    });
+
+    const smart_types_step = b.step("smart_types", "Run smart types demo");
+    const smart_types_cmd = b.addRunArtifact(smart_types_exe);
+    smart_types_step.dependOn(&smart_types_cmd.step);
+
+    // getSchema 演示可执行文件
+    const getschema_demo_exe = b.addExecutable(.{
+        .name = "getSchema_demo",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/getSchema_demo.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "zini", .module = mod },
+            },
+            .link_libc = true,
+        }),
+    });
+
+    const getschema_demo_step = b.step("getSchema_demo", "Run getSchema demo");
+    const getschema_demo_cmd = b.addRunArtifact(getschema_demo_exe);
+    getschema_demo_step.dependOn(&getschema_demo_cmd.step);
 
     // 创建可执行文件
     const exe = b.addExecutable(.{
@@ -182,9 +220,25 @@ pub fn build(b: *std.Build) void {
 
     const run_exe_tests = b.addRunArtifact(exe_tests);
 
+    // 文档注释测试
+    const doc_tests_mod = b.createModule(.{
+        .root_source_file = b.path("tests/documentation.zig"),
+        .target = target,
+        .imports = &.{
+            .{ .name = "zini", .module = mod },
+        },
+    });
+
+    const doc_tests = b.addTest(.{
+        .root_module = doc_tests_mod,
+    });
+
+    const run_doc_tests = b.addRunArtifact(doc_tests);
+
     const test_step = b.step("test", "Run tests");
     test_step.dependOn(&run_mod_tests.step);
     test_step.dependOn(&run_exe_tests.step);
+    test_step.dependOn(&run_doc_tests.step);
 
     // Zig 0.16 特性：基准测试
     const bench_exe = b.addExecutable(.{

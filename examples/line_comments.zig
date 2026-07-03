@@ -123,10 +123,10 @@ pub fn main() !void {
 
         try config.loadFromString(config_content);
 
-        const db_host = config.getSection("database", "host").?;
-        const db_port = try config.getSectionU16("database", "port");
-        const db_ssl = try config.getSectionBool("database", "ssl");
-        const db_timeout = try config.getSectionU32("database", "timeout");
+        const db_host = config.get("database.host").?;
+        const db_port = try config.getU16("database.port");
+        const db_ssl = try config.getBool("database.ssl");
+        const db_timeout = try config.getU32("database.timeout");
 
         std.debug.print("数据库配置:\n", .{});
         std.debug.print("  host: {s}\n", .{db_host});
@@ -134,8 +134,8 @@ pub fn main() !void {
         std.debug.print("  ssl: {}\n", .{db_ssl});
         std.debug.print("  timeout: {}s\n", .{db_timeout});
 
-        const workers = try config.getSectionU8("server", "workers");
-        const queue_size = try config.getSectionU32("server", "queue_size");
+        const workers = try config.getU8("server.workers");
+        const queue_size = try config.getU32("server.queue_size");
 
         std.debug.print("服务器配置:\n", .{});
         std.debug.print("  workers: {}\n", .{workers});
@@ -180,20 +180,20 @@ pub fn main() !void {
         try config.loadFromString(real_config);
 
         std.debug.print("应用配置:\n", .{});
-        std.debug.print("  名称: {s}\n", .{config.getSection("app", "name").?});
-        std.debug.print("  版本: {d:.1}\n", .{try config.getSectionF32("app", "version")});
-        std.debug.print("  调试模式: {}\n", .{try config.getSectionBool("app", "debug")});
-        std.debug.print("  最大连接: {}\n", .{try config.getSectionU32("app", "max_connections")});
+        std.debug.print("  名称: {s}\n", .{config.get("app.name").?});
+        std.debug.print("  版本: {d:.1}\n", .{try config.getF32("app.version")});
+        std.debug.print("  调试模式: {}\n", .{try config.getBool("app.debug")});
+        std.debug.print("  最大连接: {}\n", .{try config.getU32("app.max_connections")});
 
         std.debug.print("数据库配置:\n", .{});
-        std.debug.print("  主机: {s}\n", .{config.getSection("database", "host").?});
-        std.debug.print("  端口: {}\n", .{try config.getSectionU16("database", "port")});
-        std.debug.print("  连接池: {}\n", .{try config.getSectionU8("database", "pool_size")});
+        std.debug.print("  主机: {s}\n", .{config.get("database.host").?});
+        std.debug.print("  端口: {}\n", .{try config.getU16("database.port")});
+        std.debug.print("  连接池: {}\n", .{try config.getU8("database.pool_size")});
 
         std.debug.print("日志配置:\n", .{});
-        std.debug.print("  级别: {s}\n", .{config.getSection("logging", "level").?});
-        std.debug.print("  文件: {s}\n", .{config.getSection("logging", "file").?});
-        std.debug.print("  最大大小: {} bytes\n", .{try config.getSectionU64("logging", "max_size")});
+        std.debug.print("  级别: {s}\n", .{config.get("logging.level").?});
+        std.debug.print("  文件: {s}\n", .{config.get("logging.file").?});
+        std.debug.print("  最大大小: {} bytes\n", .{try config.getU64("logging.max_size")});
 
         std.debug.print("  ✓ 实际配置文件解析成功\n\n", .{});
     }

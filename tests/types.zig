@@ -28,22 +28,22 @@ pub fn main() !void {
         try ini.set("string", "hello");
 
         // 验证类型推断
-        if (ini.getEntry("bool_true")) |entry| {
+        if (ini.getSchema("bool_true")) |entry| {
             std.debug.print("  bool_true 类型: {s}\n", .{entry.datatype.typeName()});
             try std.testing.expectEqual(DataType.bool, entry.datatype);
         }
 
-        if (ini.getEntry("integer")) |entry| {
+        if (ini.getSchema("integer")) |entry| {
             std.debug.print("  integer 类型: {s}\n", .{entry.datatype.typeName()});
             try std.testing.expectEqual(DataType.int, entry.datatype);
         }
 
-        if (ini.getEntry("float")) |entry| {
+        if (ini.getSchema("float")) |entry| {
             std.debug.print("  float 类型: {s}\n", .{entry.datatype.typeName()});
             try std.testing.expectEqual(DataType.float, entry.datatype);
         }
 
-        if (ini.getEntry("string")) |entry| {
+        if (ini.getSchema("string")) |entry| {
             std.debug.print("  string 类型: {s}\n", .{entry.datatype.typeName()});
             try std.testing.expectEqual(DataType.string, entry.datatype);
         }
@@ -128,15 +128,15 @@ pub fn main() !void {
         var ini = Ini.init(allocator);
         defer ini.deinit();
 
-        try ini.setSection("database", "host", "localhost");
-        try ini.setSection("database", "port", "5432");
-        try ini.setSection("database", "ssl", "true");
-        try ini.setSection("database", "timeout", "30.5");
+        try ini.set("database.host", "localhost");
+        try ini.set("database.port", "5432");
+        try ini.set("database.ssl", "true");
+        try ini.set("database.timeout", "30.5");
 
-        const host = ini.getSection("database", "host").?;
-        const port = try ini.getSectionInt("database", "port");
-        const ssl = try ini.getSectionBool("database", "ssl");
-        const timeout = try ini.getSectionFloat("database", "timeout");
+        const host = ini.get("database.host").?;
+        const port = try ini.getInt("database.port");
+        const ssl = try ini.getBool("database.ssl");
+        const timeout = try ini.getFloat("database.timeout");
 
         std.debug.print("  host = {s}\n", .{host});
         std.debug.print("  port = {}\n", .{port});
@@ -196,9 +196,9 @@ pub fn main() !void {
         std.debug.print("    税率: {d:.2}\n", .{tax_rate});
 
         // 验证数据库配置
-        const db_port = try ini.getSectionInt("database", "port");
-        const db_ssl = try ini.getSectionBool("database", "ssl");
-        const db_timeout = try ini.getSectionFloat("database", "timeout");
+        const db_port = try ini.getInt("database.port");
+        const db_ssl = try ini.getBool("database.ssl");
+        const db_timeout = try ini.getFloat("database.timeout");
 
         std.debug.print("  数据库配置:\n", .{});
         std.debug.print("    端口: {}\n", .{db_port});
@@ -206,9 +206,9 @@ pub fn main() !void {
         std.debug.print("    超时: {d:.1}s\n", .{db_timeout});
 
         // 验证服务器配置
-        const server_workers = try ini.getSectionInt("server", "workers");
-        const server_enabled = try ini.getSectionBool("server", "enabled");
-        const server_load = try ini.getSectionFloat("server", "load_factor");
+        const server_workers = try ini.getInt("server.workers");
+        const server_enabled = try ini.getBool("server.enabled");
+        const server_load = try ini.getFloat("server.load_factor");
 
         std.debug.print("  服务器配置:\n", .{});
         std.debug.print("    工作进程: {}\n", .{server_workers});
@@ -264,10 +264,10 @@ test "type inference basic" {
     try ini.set("float_val", "3.14");
     try ini.set("str_val", "hello");
 
-    const bool_entry = ini.getEntry("bool_val").?;
-    const int_entry = ini.getEntry("int_val").?;
-    const float_entry = ini.getEntry("float_val").?;
-    const str_entry = ini.getEntry("str_val").?;
+    const bool_entry = ini.getSchema("bool_val").?;
+    const int_entry = ini.getSchema("int_val").?;
+    const float_entry = ini.getSchema("float_val").?;
+    const str_entry = ini.getSchema("str_val").?;
 
     try std.testing.expectEqual(DataType.bool, bool_entry.datatype);
     try std.testing.expectEqual(DataType.int, int_entry.datatype);
@@ -298,13 +298,13 @@ test "section type access" {
     var ini = Ini.init(allocator);
     defer ini.deinit();
 
-    try ini.setSection("config", "enabled", "true");
-    try ini.setSection("config", "count", "10");
-    try ini.setSection("config", "rate", "0.5");
+    try ini.set("config.enabled", "true");
+    try ini.set("config.count", "10");
+    try ini.set("config.rate", "0.5");
 
-    const enabled = try ini.getSectionBool("config", "enabled");
-    const count = try ini.getSectionInt("config", "count");
-    const rate = try ini.getSectionFloat("config", "rate");
+    const enabled = try ini.getBool("config.enabled");
+    const count = try ini.getInt("config.count");
+    const rate = try ini.getFloat("config.rate");
 
     try std.testing.expect(enabled == true);
     try std.testing.expectEqual(@as(i64, 10), count);

@@ -22,21 +22,21 @@ pub fn main() !void {
         defer config.deinit();
 
         // 设置各种类型的值
-        try config.set("app.debug", "true");           // 布尔值
-        try config.set("app.port", "8080");            // 整数
-        try config.set("app.version", "2.5");          // 浮点数
-        try config.set("app.name", "MyApp");           // 字符串
+        try config.set("debug", "true");           // 布尔值
+        try config.set("port", "8080");            // 整数
+        try config.set("version", "2.5");          // 浮点数
+        try config.set("name", "MyApp");           // 字符串
 
         // 显示推断的类型
-        const debug_entry = config.getEntry("app.debug").?;
-        const port_entry = config.getEntry("app.port").?;
-        const version_entry = config.getEntry("app.version").?;
-        const name_entry = config.getEntry("app.name").?;
+        const debug_entry = config.getSchema("debug").?;
+        const port_entry = config.getSchema("port").?;
+        const version_entry = config.getSchema("version").?;
+        const name_entry = config.getSchema("name").?;
 
-        std.debug.print("app.debug = 'true'  -> 类型: {s}\n", .{debug_entry.datatype.typeName()});
-        std.debug.print("app.port = '8080'   -> 类型: {s}\n", .{port_entry.datatype.typeName()});
-        std.debug.print("app.version = '2.5' -> 类型: {s}\n", .{version_entry.datatype.typeName()});
-        std.debug.print("app.name = 'MyApp'  -> 类型: {s}\n", .{name_entry.datatype.typeName()});
+        std.debug.print("debug = 'true'  -> 类型: {s}\n", .{debug_entry.datatype.typeName()});
+        std.debug.print("port = '8080'   -> 类型: {s}\n", .{port_entry.datatype.typeName()});
+        std.debug.print("version = '2.5' -> 类型: {s}\n", .{version_entry.datatype.typeName()});
+        std.debug.print("name = 'MyApp'  -> 类型: {s}\n", .{name_entry.datatype.typeName()});
     }
 
     // 示例 2: 类型安全访问
@@ -77,21 +77,21 @@ pub fn main() !void {
         defer config.deinit();
 
         // 数据库配置
-        try config.setSection("database", "host", "localhost");
-        try config.setSection("database", "port", "5432");
-        try config.setSection("database", "ssl", "true");
-        try config.setSection("database", "timeout", "30.5");
+        try config.set("database.host", "localhost");
+        try config.set("database.port", "5432");
+        try config.set("database.ssl", "true");
+        try config.set("database.timeout", "30.5");
 
         // 服务器配置
-        try config.setSection("server", "workers", "4");
-        try config.setSection("server", "enabled", "true");
-        try config.setSection("server", "max_memory", "2048");
+        try config.set("server.workers", "4");
+        try config.set("server.enabled", "true");
+        try config.set("server.max_memory", "2048");
 
         // 访问数据库配置
-        const db_host = config.getSection("database", "host").?;
-        const db_port = try config.getSectionInt("database", "port");
-        const db_ssl = try config.getSectionBool("database", "ssl");
-        const db_timeout = try config.getSectionFloat("database", "timeout");
+        const db_host = config.get("database.host").?;
+        const db_port = try config.getInt("database.port");
+        const db_ssl = try config.getBool("database.ssl");
+        const db_timeout = try config.getFloat("database.timeout");
 
         std.debug.print("数据库配置:\n", .{});
         std.debug.print("  主机: {s}\n", .{db_host});
@@ -100,9 +100,9 @@ pub fn main() !void {
         std.debug.print("  超时: {d:.1}s\n", .{db_timeout});
 
         // 访问服务器配置
-        const server_workers = try config.getSectionInt("server", "workers");
-        const server_enabled = try config.getSectionBool("server", "enabled");
-        const server_memory = try config.getSectionInt("server", "max_memory");
+        const server_workers = try config.getInt("server.workers");
+        const server_enabled = try config.getBool("server.enabled");
+        const server_memory = try config.getInt("server.max_memory");
 
         std.debug.print("服务器配置:\n", .{});
         std.debug.print("  工作进程: {}\n", .{server_workers});
@@ -157,17 +157,17 @@ pub fn main() !void {
         std.debug.print("  超时: {d:.1}s\n", .{app_timeout});
 
         // 读取数据库配置
-        const db_pool_size = try config.getSectionInt("database", "pool_size");
-        const db_conn_timeout = try config.getSectionFloat("database", "connection_timeout");
+        const db_pool_size = try config.getInt("database.pool_size");
+        const db_conn_timeout = try config.getFloat("database.connection_timeout");
 
         std.debug.print("数据库连接池配置:\n", .{});
         std.debug.print("  连接池大小: {}\n", .{db_pool_size});
         std.debug.print("  连接超时: {d:.1}s\n", .{db_conn_timeout});
 
         // 读取功能配置
-        const caching = try config.getSectionBool("features", "caching");
-        const max_cache_size = try config.getSectionInt("features", "max_cache_size");
-        const cache_ttl = try config.getSectionFloat("features", "cache_ttl");
+        const caching = try config.getBool("features.caching");
+        const max_cache_size = try config.getInt("features.max_cache_size");
+        const cache_ttl = try config.getFloat("features.cache_ttl");
 
         std.debug.print("缓存功能配置:\n", .{});
         std.debug.print("  启用缓存: {}\n", .{caching});
@@ -211,7 +211,7 @@ pub fn main() !void {
 
         // 类型检查
         std.debug.print("类型检查:\n", .{});
-        if (config.getEntry("valid_int")) |entry| {
+        if (config.getSchema("valid_int")) |entry| {
             const is_int = entry.isType(.int);
             const is_bool = entry.isType(.bool);
             std.debug.print("  valid_int 是整数: {}\n", .{is_int});

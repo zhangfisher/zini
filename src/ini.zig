@@ -17,13 +17,6 @@ const types = @import("types.zig");
 pub const DataType = types.DataType;
 const TypeConverter = types.TypeConverter;
 
-/// 位标识条目（用于位合并）
-const BitFlagEntry = struct {
-    key: []const u8,
-    value: []const u8,
-    datatype: DataType,
-};
-
 /// Error types for INI operations
 pub const Error = error{
     InvalidFormat,
@@ -44,47 +37,23 @@ pub const Entry = struct {
     key: []const u8,
     value: []const u8,
     datatype: DataType,
-    /// 是否为数组
-    is_array: bool = false,
-    /// 数组元素的原始字符串值（仅当 is_array=true 时有效）
-    array_items: ?[][]const u8 = null,
-
-    /// 解析数组元素
-    fn parseArrayItems(allocator: Allocator, trimmed: []const u8) ![][]const u8 {
-        const array_content = trimmed[1 .. trimmed.len - 1];
-        var items: std.ArrayList([]const u8) = .empty;
-        defer items.deinit(allocator);
-
-        var iter = std.mem.tokenizeScalar(u8, array_content, ',');
-        while (iter.next()) |item| {
-            const trimmed_item = std.mem.trim(u8, item, " \t\r\n");
-            if (trimmed_item.len > 0) {
-                try items.append(allocator, try allocator.dupe(u8, trimmed_item));
-            }
-        }
-        return items.toOwnedSlice(allocator);
-    }
+    /// 文档注释（从配置文件中解析出来的注释）
+    doc: ?[]const u8 = null,
+    /// 标题（从 @title 注释标记解析）
+    title: ?[]const u8 = null,
+    /// 描述（从 @description 注释标记解析）
+    description: ?[]const u8 = null,
 
     /// Create a new entry with automatic type inference
     pub fn init(allocator: Allocator, key: []const u8, value: []const u8) Allocator.Error!Entry {
         const key_copy = try allocator.dupe(u8, key);
         const value_copy = try allocator.dupe(u8, value);
 
-        const trimmed = std.mem.trim(u8, value, " \t\r\n");
-        const is_array = trimmed.len >= 2 and trimmed[0] == '[' and trimmed[trimmed.len - 1] == ']';
-
-        var entry = Entry{
+        return Entry{
             .key = key_copy,
             .value = value_copy,
-            .datatype = if (is_array) .array else DataType.infer(value),
-            .is_array = is_array,
+            .datatype = DataType.infer(value),
         };
-
-        if (is_array) {
-            entry.array_items = try parseArrayItems(allocator, trimmed);
-        }
-
-        return entry;
     }
 
     /// Create a new entry with explicit type
@@ -92,32 +61,25 @@ pub const Entry = struct {
         const key_copy = try allocator.dupe(u8, key);
         const value_copy = try allocator.dupe(u8, value);
 
-        const trimmed = std.mem.trim(u8, value, " \t\r\n");
-        const is_array = trimmed.len >= 2 and trimmed[0] == '[' and trimmed[trimmed.len - 1] == ']';
-
-        var entry = Entry{
+        return Entry{
             .key = key_copy,
             .value = value_copy,
-            .datatype = if (is_array) .array else datatype,
-            .is_array = is_array,
+            .datatype = datatype,
         };
-
-        if (is_array) {
-            entry.array_items = try parseArrayItems(allocator, trimmed);
-        }
-
-        return entry;
     }
 
     /// Free entry resources
     pub fn deinit(self: *Entry, allocator: Allocator) void {
         allocator.free(self.key);
         allocator.free(self.value);
-        if (self.array_items) |items| {
-            for (items) |item| {
-                allocator.free(item);
-            }
-            allocator.free(items);
+        if (self.doc) |doc_text| {
+            allocator.free(doc_text);
+        }
+        if (self.title) |title_text| {
+            allocator.free(title_text);
+        }
+        if (self.description) |desc_text| {
+            allocator.free(desc_text);
         }
     }
 
@@ -213,6 +175,9 @@ pub const Entry = struct {
     }
 };
 
+/// Schema is an alias for Entry - provides type information for a key-value pair
+pub const Schema = Entry;
+
 /// A section containing multiple entries
 pub const Section = struct {
     name: []const u8,
@@ -231,9 +196,8 @@ pub const Section = struct {
     pub fn deinit(self: *Section, allocator: Allocator) void {
         var entry_iter = self.entries.iterator();
         while (entry_iter.next()) |entry| {
-            // Free entry value
-            allocator.free(entry.value_ptr.value);
-            allocator.free(entry.value_ptr.key);
+            // Free entry resources (including doc, title, description)
+            entry.value_ptr.deinit(allocator);
             // Free the key stored in the hash map
             allocator.free(entry.key_ptr.*);
         }
@@ -250,8 +214,8 @@ pub const Section = struct {
     }
 
     /// Get entry by key
-    pub fn getEntry(self: *const Section, key: []const u8) ?Entry {
-        return if (self.entries.get(key)) |kv| kv.value else null;
+    pub fn getEntry(self: *const Section, key: []const u8) ?*const Entry {
+        return if (self.entries.getPtr(key)) |ptr| ptr else null;
     }
 
     /// 辅助函数：统一处理类型转换
@@ -377,9 +341,8 @@ pub const Ini = struct {
         // Free global entries
         var entry_iter = self.global_entries.iterator();
         while (entry_iter.next()) |entry| {
-            // Free entry value
-            self.allocator.free(entry.value_ptr.value);
-            self.allocator.free(entry.value_ptr.key);
+            // Free entry resources (including doc, title, description)
+            entry.value_ptr.deinit(self.allocator);
             // Free the key stored in the hash map
             self.allocator.free(entry.key_ptr.*);
         }
@@ -420,6 +383,23 @@ pub const Ini = struct {
 
     /// Load INI from string
     pub fn loadFromString(self: *Ini, content: []const u8) Error!void {
+        // 清空现有数据
+        {
+            var entry_iter = self.global_entries.iterator();
+            while (entry_iter.next()) |entry| {
+                entry.value_ptr.deinit(self.allocator);
+                self.allocator.free(entry.key_ptr.*);
+            }
+            self.global_entries.clearRetainingCapacity();
+
+            var section_iter = self.sections.iterator();
+            while (section_iter.next()) |section| {
+                section.value_ptr.deinit(self.allocator);
+                self.allocator.free(section.key_ptr.*);
+            }
+            self.sections.clearRetainingCapacity();
+        }
+
         var parser = Parser{
             .allocator = self.allocator,
             .content = content,
@@ -427,7 +407,7 @@ pub const Ini = struct {
             .ini = self,
             .current_section = null,
             .current_section_name = "",
-            .bit_merge_groups = StringHashMap(BitMergeGroup).init(self.allocator),
+            .pending_comments = undefined, // 将在 parse 中初始化
         };
         try parser.parse();
     }
@@ -463,6 +443,23 @@ pub const Ini = struct {
         // Global entries
         var entry_iter = self.global_entries.iterator();
         while (entry_iter.next()) |entry| {
+            // 计算 doc、title、description 注释的长度（顺序：doc → title → description）
+            if (entry.value_ptr.doc) |doc| {
+                // doc 可能包含多行，需要为每一行计算 "# " 前缀
+                var line_count: usize = 0;
+                var doc_lines = std.mem.splitScalar(u8, doc, '\n');
+                while (doc_lines.next()) |line| {
+                    line_count += 1;
+                    _ = line;
+                }
+                total_size += line_count * 2 + doc.len + line_count; // 每行 "# " + 内容 + 换行符
+            }
+            if (entry.value_ptr.title) |title| {
+                total_size += 9 + title.len + 1; // "# @title xxx\n"
+            }
+            if (entry.value_ptr.description) |desc| {
+                total_size += 16 + desc.len + 1; // "# @description xxx\n"
+            }
             total_size += entry.key_ptr.len + 3 + entry.value_ptr.value.len + 1; // "key = value\n"
         }
 
@@ -477,6 +474,23 @@ pub const Ini = struct {
             total_size += 1 + section.value_ptr.name.len + 2; // "[name]\n"
             var entry_iter2 = section.value_ptr.entries.iterator();
             while (entry_iter2.next()) |entry| {
+                // 计算 doc、title、description 注释的长度（顺序：doc → title → description）
+                if (entry.value_ptr.doc) |doc| {
+                    // doc 可能包含多行，需要为每一行计算 "# " 前缀
+                    var line_count: usize = 0;
+                    var doc_lines = std.mem.splitScalar(u8, doc, '\n');
+                    while (doc_lines.next()) |line| {
+                        line_count += 1;
+                        _ = line;
+                    }
+                    total_size += line_count * 2 + doc.len + line_count; // 每行 "# " + 内容 + 换行符
+                }
+                if (entry.value_ptr.title) |title| {
+                    total_size += 9 + title.len + 1; // "# @title xxx\n"
+                }
+                if (entry.value_ptr.description) |desc| {
+                    total_size += 16 + desc.len + 1; // "# @description xxx\n"
+                }
                 total_size += entry.key_ptr.len + 3 + entry.value_ptr.value.len + 1; // "key = value\n"
             }
             total_size += 1; // blank line after section
@@ -490,6 +504,82 @@ pub const Ini = struct {
         // Write global entries
         entry_iter = self.global_entries.iterator();
         while (entry_iter.next()) |entry| {
+            // 按顺序写入注释：doc → @title → @description
+            if (entry.value_ptr.doc) |doc| {
+                // doc 可能包含多行，需要为每一行添加 "# " 前缀
+                var doc_lines = std.mem.splitScalar(u8, doc, '\n');
+                while (doc_lines.next()) |line| {
+                    result[pos] = '#';
+                    pos += 1;
+                    result[pos] = ' ';
+                    pos += 1;
+                    @memcpy(result[pos..][0..line.len], line);
+                    pos += line.len;
+                    result[pos] = '\n';
+                    pos += 1;
+                }
+            }
+            if (entry.value_ptr.title) |title| {
+                result[pos] = '#';
+                pos += 1;
+                result[pos] = ' ';
+                pos += 1;
+                result[pos] = '@';
+                pos += 1;
+                result[pos] = 't';
+                pos += 1;
+                result[pos] = 'i';
+                pos += 1;
+                result[pos] = 't';
+                pos += 1;
+                result[pos] = 'l';
+                pos += 1;
+                result[pos] = 'e';
+                pos += 1;
+                result[pos] = ' ';
+                pos += 1;
+                @memcpy(result[pos..][0..title.len], title);
+                pos += title.len;
+                result[pos] = '\n';
+                pos += 1;
+            }
+            if (entry.value_ptr.description) |desc| {
+                result[pos] = '#';
+                pos += 1;
+                result[pos] = ' ';
+                pos += 1;
+                result[pos] = '@';
+                pos += 1;
+                @memcpy(result[pos..][0.."d".len], "d");
+                pos += 1;
+                @memcpy(result[pos..][0.."e".len], "e");
+                pos += 1;
+                @memcpy(result[pos..][0.."s".len], "s");
+                pos += 1;
+                @memcpy(result[pos..][0.."c".len], "c");
+                pos += 1;
+                @memcpy(result[pos..][0.."r".len], "r");
+                pos += 1;
+                @memcpy(result[pos..][0.."i".len], "i");
+                pos += 1;
+                @memcpy(result[pos..][0.."p".len], "p");
+                pos += 1;
+                @memcpy(result[pos..][0.."t".len], "t");
+                pos += 1;
+                @memcpy(result[pos..][0.."i".len], "i");
+                pos += 1;
+                @memcpy(result[pos..][0.."o".len], "o");
+                pos += 1;
+                @memcpy(result[pos..][0.."n".len], "n");
+                pos += 1;
+                result[pos] = ' ';
+                pos += 1;
+                @memcpy(result[pos..][0..desc.len], desc);
+                pos += desc.len;
+                result[pos] = '\n';
+                pos += 1;
+            }
+            // 写入 key = value
             @memcpy(result[pos..][0..entry.key_ptr.len], entry.key_ptr.*);
             pos += entry.key_ptr.len;
             result[pos] = ' ';
@@ -524,6 +614,82 @@ pub const Ini = struct {
 
             var entry_iter2 = section.value_ptr.entries.iterator();
             while (entry_iter2.next()) |entry| {
+                // 按顺序写入注释：doc → @title → @description
+                if (entry.value_ptr.doc) |doc| {
+                    // doc 可能包含多行，需要为每一行添加 "# " 前缀
+                    var doc_lines = std.mem.splitScalar(u8, doc, '\n');
+                    while (doc_lines.next()) |line| {
+                        result[pos] = '#';
+                        pos += 1;
+                        result[pos] = ' ';
+                        pos += 1;
+                        @memcpy(result[pos..][0..line.len], line);
+                        pos += line.len;
+                        result[pos] = '\n';
+                        pos += 1;
+                    }
+                }
+                if (entry.value_ptr.title) |title| {
+                    result[pos] = '#';
+                    pos += 1;
+                    result[pos] = ' ';
+                    pos += 1;
+                    result[pos] = '@';
+                    pos += 1;
+                    result[pos] = 't';
+                    pos += 1;
+                    result[pos] = 'i';
+                    pos += 1;
+                    result[pos] = 't';
+                    pos += 1;
+                    result[pos] = 'l';
+                    pos += 1;
+                    result[pos] = 'e';
+                    pos += 1;
+                    result[pos] = ' ';
+                    pos += 1;
+                    @memcpy(result[pos..][0..title.len], title);
+                    pos += title.len;
+                    result[pos] = '\n';
+                    pos += 1;
+                }
+                if (entry.value_ptr.description) |desc| {
+                    result[pos] = '#';
+                    pos += 1;
+                    result[pos] = ' ';
+                    pos += 1;
+                    result[pos] = '@';
+                    pos += 1;
+                    @memcpy(result[pos..][0.."d".len], "d");
+                    pos += 1;
+                    @memcpy(result[pos..][0.."e".len], "e");
+                    pos += 1;
+                    @memcpy(result[pos..][0.."s".len], "s");
+                    pos += 1;
+                    @memcpy(result[pos..][0.."c".len], "c");
+                    pos += 1;
+                    @memcpy(result[pos..][0.."r".len], "r");
+                    pos += 1;
+                    @memcpy(result[pos..][0.."i".len], "i");
+                    pos += 1;
+                    @memcpy(result[pos..][0.."p".len], "p");
+                    pos += 1;
+                    @memcpy(result[pos..][0.."t".len], "t");
+                    pos += 1;
+                    @memcpy(result[pos..][0.."i".len], "i");
+                    pos += 1;
+                    @memcpy(result[pos..][0.."o".len], "o");
+                    pos += 1;
+                    @memcpy(result[pos..][0.."n".len], "n");
+                    pos += 1;
+                    result[pos] = ' ';
+                    pos += 1;
+                    @memcpy(result[pos..][0..desc.len], desc);
+                    pos += desc.len;
+                    result[pos] = '\n';
+                    pos += 1;
+                }
+                // 写入 key = value
                 @memcpy(result[pos..][0..entry.key_ptr.len], entry.key_ptr.*);
                 pos += entry.key_ptr.len;
                 result[pos] = ' ';
@@ -542,7 +708,7 @@ pub const Ini = struct {
             pos += 1;
         }
 
-        return result;
+        return result[0..pos];
     }
 
     /// Write INI content to a writer
@@ -576,8 +742,8 @@ pub const Ini = struct {
     }
 
     /// Get global entry
-    pub fn getEntry(self: *const Ini, key: []const u8) ?Entry {
-        return if (self.global_entries.get(key)) |kv| kv.value else null;
+    pub fn getEntry(self: *const Ini, key: []const u8) ?*const Entry {
+        return if (self.global_entries.getPtr(key)) |ptr| ptr else null;
     }
 
     /// 辅助函数：统一处理全局值的类型转换
@@ -744,29 +910,7 @@ pub const Ini = struct {
         return self.getSectionF64(section_name, key);
     }
 
-    /// Get global array value
-    /// 返回数组的原始字符串切片，调用者需要转换为具体类型
-    pub fn getArray(self: *const Ini, key: []const u8) ?[][]const u8 {
-        if (self.global_entries.getPtr(key)) |entry| {
-            if (entry.is_array) {
-                return entry.array_items;
-            }
-        }
-        return null;
-    }
-
-    /// Get section array value
-    /// 返回数组的原始字符串切片，调用者需要转换为具体类型
-    pub fn getSectionArray(self: *const Ini, section_name: []const u8, key: []const u8) ?[][]const u8 {
-        if (self.sections.get(section_name)) |section| {
-            if (section.entries.getPtr(key)) |entry| {
-                if (entry.is_array) {
-                    return entry.array_items;
-                }
-            }
-        }
-        return null;
-    }
+    /// Set a global value
 
     /// Set a global value
     pub fn set(self: *Ini, key: []const u8, value: []const u8) Allocator.Error!void {
@@ -816,36 +960,6 @@ pub const Ini = struct {
     }
 };
 
-/// 位合并组（存储相同前缀的位标识）
-const BitMergeGroup = struct {
-    allocator: Allocator,
-    prefix: []const u8,
-    section_name: []const u8, // 空字符串表示全局
-    datatype: DataType,
-    entries: std.ArrayList(BitFlagEntry),
-
-    fn init(allocator: Allocator, prefix: []const u8, section_name: []const u8, datatype: DataType) BitMergeGroup {
-        return .{
-            .allocator = allocator,
-            .prefix = prefix,
-            .section_name = section_name,
-            .datatype = datatype,
-            .entries = .empty,
-        };
-    }
-
-    fn deinit(self: *BitMergeGroup) void {
-        // 释放每个条目中分配的字符串
-        for (self.entries.items) |item| {
-            self.allocator.free(item.key);
-            self.allocator.free(item.value);
-        }
-        self.entries.deinit(self.allocator);
-        self.allocator.free(self.prefix);
-        self.allocator.free(self.section_name);
-    }
-};
-
 /// Parser for INI format
 const Parser = struct {
     allocator: Allocator,
@@ -854,18 +968,15 @@ const Parser = struct {
     ini: *Ini,
     current_section: ?*Section = null,
     current_section_name: []const u8 = "", // 当前section的名称
-
-    // 位合并收集器
-    bit_merge_groups: StringHashMap(BitMergeGroup),
+    pending_comments: std.ArrayList([]const u8), // 累积的注释行
 
     fn parse(self: *Parser) Error!void {
-        self.bit_merge_groups = StringHashMap(BitMergeGroup).init(self.allocator);
+        self.pending_comments = std.ArrayList([]const u8).empty;
         defer {
-            var iter = self.bit_merge_groups.iterator();
-            while (iter.next()) |entry| {
-                entry.value_ptr.deinit();
+            for (self.pending_comments.items) |comment| {
+                self.allocator.free(comment);
             }
-            self.bit_merge_groups.deinit();
+            self.pending_comments.deinit(self.allocator);
         }
 
         while (self.pos < self.content.len) {
@@ -874,9 +985,9 @@ const Parser = struct {
 
             const ch = self.content[self.pos];
 
-            // Comment
-            if (ch == ';' or ch == '#') {
-                try self.skipLine();
+            // Comment (# and ; supported)
+            if (ch == '#' or ch == ';') {
+                try self.accumulateComment();
                 continue;
             }
 
@@ -889,9 +1000,6 @@ const Parser = struct {
             // Key-value pair
             try self.parseKeyValue();
         }
-
-        // 解析完成后，执行位合并
-        try self.performBitMerge();
     }
 
     fn parseSection(self: *Parser) Error!void {
@@ -966,59 +1074,14 @@ const Parser = struct {
             }
         }
 
-        // 检查是否为位标识（key.subkey 格式）
-        // 使用最后一个 . 作为分隔符，支持嵌套键如 file.owner.read
-        if (std.mem.lastIndexOfScalar(u8, actual_key, '.')) |dot_pos| {
-            const prefix = actual_key[0..dot_pos];
-            const suffix = actual_key[dot_pos + 1 ..];
-
-            // 只有当后缀不为空时才处理为位标识
-            if (suffix.len > 0) {
-                // 确定数据类型
-                const datatype = explicit_datatype orelse DataType.infer(value);
-
-                // 只有整数类型才进行位合并
-                if (datatype.isInteger()) {
-                    // 查找或创建位合并组
-                    const group_key = try std.fmt.allocPrint(self.allocator, "{s}|{s}", .{ self.current_section_name, prefix });
-                    errdefer self.allocator.free(group_key);
-
-                    if (self.bit_merge_groups.getPtr(group_key)) |group| {
-                        // 更新类型（使用第一个遇到的类型或显式类型）
-                        if (explicit_datatype != null) {
-                            group.datatype = explicit_datatype.?;
-                        }
-                        // 添加条目
-                        try group.entries.append(self.allocator, BitFlagEntry{
-                            .key = try self.allocator.dupe(u8, actual_key),
-                            .value = try self.allocator.dupe(u8, value),
-                            .datatype = datatype,
-                        });
-                    } else {
-                        // 创建新组
-                        var group = BitMergeGroup.init(self.allocator, try self.allocator.dupe(u8, prefix), try self.allocator.dupe(u8, self.current_section_name), datatype);
-                        try group.entries.append(self.allocator, BitFlagEntry{
-                            .key = try self.allocator.dupe(u8, actual_key),
-                            .value = try self.allocator.dupe(u8, value),
-                            .datatype = datatype,
-                        });
-                        try self.bit_merge_groups.put(group_key, group);
-                    }
-
-                    // 不存储原始的 key.subkey 条目
-                    if (self.pos < self.content.len and self.content[self.pos] == '\n') {
-                        self.pos += 1;
-                    }
-                    return;
-                }
-            }
-        }
-
         // Create entry with explicit or inferred type
-        const entry = if (explicit_datatype) |datatype|
+        var entry = if (explicit_datatype) |datatype|
             try Entry.initWithType(self.allocator, actual_key, value, datatype)
         else
             try Entry.init(self.allocator, actual_key, value);
+
+        // 设置文档注释（包含 title 和 description）
+        try self.setEntryDocumentation(&entry);
 
         if (self.current_section) |section| {
             try section.entries.put(try self.allocator.dupe(u8, actual_key), entry);
@@ -1029,6 +1092,141 @@ const Parser = struct {
         if (self.pos < self.content.len and self.content[self.pos] == '\n') {
             self.pos += 1;
         }
+    }
+
+    /// 累积注释行到 pending_comments
+    fn accumulateComment(self: *Parser) Error!void {
+        // 跳过 # 字符
+        self.pos += 1;
+        const start = self.pos;
+
+        // 找到行尾
+        while (self.pos < self.content.len and self.content[self.pos] != '\n') {
+            self.pos += 1;
+        }
+
+        // 提取注释内容并使用 trimAll 删除前后空格
+        const comment_raw = self.content[start..self.pos];
+        const comment_trimmed = trimAll(comment_raw);
+
+        // 跳过空注释
+        if (comment_trimmed.len == 0) {
+            // 跳过换行符
+            if (self.pos < self.content.len and self.content[self.pos] == '\n') {
+                self.pos += 1;
+            }
+            return;
+        }
+
+        // 保存注释（包括 @title 和 @description 标记）
+        try self.pending_comments.append(self.allocator, try self.allocator.dupe(u8, comment_trimmed));
+
+        // 跳过换行符
+        if (self.pos < self.content.len and self.content[self.pos] == '\n') {
+            self.pos += 1;
+        }
+    }
+
+    /// 获取并清空累积的注释，将多行注释合并为一个字符串
+    fn getPendingDocumentation(self: *Parser) Allocator.Error!?[]const u8 {
+        if (self.pending_comments.items.len == 0) {
+            return null;
+        }
+
+        // 计算总大小
+        var total_size: usize = 0;
+        for (self.pending_comments.items) |comment| {
+            total_size += comment.len;
+            total_size += 1; // 换行符
+        }
+
+        // 分配内存
+        const result = try self.allocator.alloc(u8, total_size);
+        var offset: usize = 0;
+
+        // 合并注释
+        for (self.pending_comments.items) |comment| {
+            @memcpy(result[offset..][0..comment.len], comment);
+            offset += comment.len;
+            if (offset < result.len) {
+                result[offset] = '\n';
+                offset += 1;
+            }
+        }
+
+        // 清空累积的注释并释放内存
+        for (self.pending_comments.items) |comment| {
+            self.allocator.free(comment);
+        }
+        self.pending_comments.clearRetainingCapacity();
+
+        return result[0 .. offset - 1]; // 移除最后的换行符
+    }
+
+    /// 设置 entry 的文档字段（从累积的注释中提取 title、description 和 doc）
+    fn setEntryDocumentation(self: *Parser, entry: *Entry) !void {
+        if (self.pending_comments.items.len == 0) {
+            return;
+        }
+
+        var doc_comments = std.ArrayList([]const u8).empty;
+        defer {
+            for (doc_comments.items) |comment| {
+                self.allocator.free(comment);
+            }
+            doc_comments.deinit(self.allocator);
+        }
+
+        // 遍历注释行，提取 title 和 description
+        for (self.pending_comments.items) |comment| {
+            if (std.mem.startsWith(u8, comment, "@title")) {
+                const title_value = trimAll(comment["@title".len..]);
+                if (title_value.len > 0) {
+                    entry.title = try self.allocator.dupe(u8, title_value);
+                }
+            } else if (std.mem.startsWith(u8, comment, "@description")) {
+                const desc_value = trimAll(comment["@description".len..]);
+                if (desc_value.len > 0) {
+                    entry.description = try self.allocator.dupe(u8, desc_value);
+                }
+            } else {
+                // 普通注释行
+                try doc_comments.append(self.allocator, try self.allocator.dupe(u8, comment));
+            }
+        }
+
+        // 合并剩余的普通注释为 doc
+        if (doc_comments.items.len > 0) {
+            // 计算实际需要的总大小（注释内容 + 换行符）
+            // 最后一个注释后面不需要换行符
+            var total_size: usize = 0;
+            for (doc_comments.items) |comment| {
+                total_size += comment.len;
+                total_size += 1; // 换行符
+            }
+            total_size -= 1; // 移除最后一个换行符
+
+            const result = try self.allocator.alloc(u8, total_size);
+            var offset: usize = 0;
+
+            for (doc_comments.items, 0..) |comment, i| {
+                @memcpy(result[offset..][0..comment.len], comment);
+                offset += comment.len;
+                // 不是最后一个注释时添加换行符
+                if (i < doc_comments.items.len - 1) {
+                    result[offset] = '\n';
+                    offset += 1;
+                }
+            }
+
+            entry.doc = result;
+        }
+
+        // 清空累积的注释并释放内存
+        for (self.pending_comments.items) |comment| {
+            self.allocator.free(comment);
+        }
+        self.pending_comments.clearRetainingCapacity();
     }
 
     fn skipLine(self: *Parser) Error!void {
@@ -1061,121 +1259,27 @@ const Parser = struct {
         return s[start..end];
     }
 
-    /// 提取值并跳过行尾注释（// 或 #）
-    /// 支持引号字符串，引号内的注释符号不会被识别为注释
-    fn extractValueWithoutComment(s: []const u8) []const u8 {
-        var in_string = false;
-        var string_quote: u8 = 0;
+    /// 删除字符串的前后空格（包括 \n, \r, \t, 空格）
+    fn trimAll(s: []const u8) []const u8 {
+        var start: usize = 0;
+        var end: usize = s.len;
 
-        for (s, 0..) |c, i| {
-            // 处理引号字符串
-            if (c == '"' or c == '\'') {
-                if (!in_string) {
-                    in_string = true;
-                    string_quote = c;
-                } else if (c == string_quote) {
-                    in_string = false;
-                    string_quote = 0;
-                }
-            }
-
-            // 不在字符串内时检查注释符号
-            if (!in_string) {
-                // 检查 // 注释（两个连续的斜杠）
-                if (c == '/' and i + 1 < s.len and s[i + 1] == '/') {
-                    return trim(s[0..i]);
-                }
-                // 检查 # 注释
-                if (c == '#') {
-                    return trim(s[0..i]);
-                }
-            }
+        // 删除前导空白字符
+        while (start < end and (s[start] == ' ' or s[start] == '\t' or s[start] == '\r' or s[start] == '\n')) {
+            start += 1;
         }
 
-        return trim(s);
+        // 删除尾随空白字符
+        while (end > start and (s[end - 1] == ' ' or s[end - 1] == '\t' or s[end - 1] == '\r' or s[end - 1] == '\n')) {
+            end -= 1;
+        }
+
+        return s[start..end];
     }
 
-    /// 执行位合并操作
-    fn performBitMerge(self: *Parser) Error!void {
-        var iter = self.bit_merge_groups.iterator();
-
-        while (iter.next()) |entry| {
-            const group = entry.value_ptr;
-
-            // 统一使用 u64 来计算，然后根据类型和结果值确定最终类型
-            var merged: u64 = 0;
-
-            // 统一处理所有整数类型的位合并
-            inline for (.{ .u8, .u16, .u32, .u64 }) |int_type| {
-                if (group.datatype == int_type) {
-                    for (group.entries.items) |item| {
-                        const val = try switch (int_type) {
-                            .u8 => TypeConverter.toU8(item.value),
-                            .u16 => TypeConverter.toU16(item.value),
-                            .u32 => TypeConverter.toU32(item.value),
-                            .u64 => TypeConverter.toU64(item.value),
-                            else => unreachable,
-                        };
-                        merged |= val;
-                    }
-                }
-            }
-
-            // 处理有符号整数类型（转换为位模式）
-            inline for (.{ .i8, .i16, .i32, .i64 }) |int_type| {
-                if (group.datatype == int_type) {
-                    for (group.entries.items) |item| {
-                        const val = try switch (int_type) {
-                            .i8 => TypeConverter.toI8(item.value),
-                            .i16 => TypeConverter.toI16(item.value),
-                            .i32 => TypeConverter.toI32(item.value),
-                            .i64 => TypeConverter.toI64(item.value),
-                            else => unreachable,
-                        };
-                        merged |= @as(u64, @bitCast(@as(i64, val)));
-                    }
-                }
-            }
-
-            // 处理自动推断类型
-            if (group.datatype == .int) {
-                for (group.entries.items) |item| {
-                    const val = try TypeConverter.toU64(item.value);
-                    merged |= val;
-                }
-            }
-
-            // 非整数类型跳过
-            if (!group.datatype.isInteger()) {
-                continue;
-            }
-
-            // 确定最终使用的类型
-            const final_type = if (group.datatype == .int)
-                DataType.inferValueSize(merged)
-            else
-                group.datatype;
-
-            // 根据结果值生成字符串
-            const merged_value_str = try std.fmt.allocPrint(self.allocator, "{}", .{merged});
-            errdefer self.allocator.free(merged_value_str);
-
-            // 创建合并后的 entry
-            const merged_entry = try Entry.initWithType(self.allocator, group.prefix, merged_value_str, final_type);
-
-            // 存储到相应的位置
-            if (group.section_name.len == 0) {
-                // 全局
-                try self.ini.global_entries.put(try self.allocator.dupe(u8, group.prefix), merged_entry);
-            } else {
-                // Section
-                if (self.ini.sections.getPtr(group.section_name)) |section| {
-                    try section.entries.put(try self.allocator.dupe(u8, group.prefix), merged_entry);
-                }
-            }
-
-            self.allocator.free(merged_value_str);
-        }
+    /// 提取值（不再支持行尾注释）
+    fn extractValueWithoutComment(s: []const u8) []const u8 {
+        return trim(s);
     }
 };
 

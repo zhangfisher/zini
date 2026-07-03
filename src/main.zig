@@ -20,14 +20,14 @@ pub fn main(init: std.process.Init) !void {
     try ini.set("debug", "true");
 
     // 创建数据库配置段
-    try ini.setSection("database", "host", "localhost");
-    try ini.setSection("database", "port", "5432");
-    try ini.setSection("database", "name", "mydb");
+    try ini.set("database.host", "localhost");
+    try ini.set("database.port", "5432");
+    try ini.set("database.name", "mydb");
 
     // 创建服务器配置段
-    try ini.setSection("server", "host", "0.0.0.0");
-    try ini.setSection("server", "port", "8080");
-    try ini.setSection("server", "workers", "4");
+    try ini.set("server.host", "0.0.0.0");
+    try ini.set("server.port", "8080");
+    try ini.set("server.workers", "4");
 
     std.debug.print("已创建配置:\n", .{});
 
@@ -37,8 +37,8 @@ pub fn main(init: std.process.Init) !void {
 
     std.debug.print("\n=== 读取配置示例 ===\n", .{});
     std.debug.print("应用名称: {s}\n", .{ini.get("app_name").?});
-    std.debug.print("数据库主机: {s}\n", .{ini.getSection("database", "host").?});
-    std.debug.print("服务器端口: {s}\n", .{ini.getSection("server", "port").?});
+    std.debug.print("数据库主机: {s}\n", .{ini.get("database.host").?});
+    std.debug.print("服务器端口: {s}\n", .{ini.get("server.port").?});
 
     std.debug.print("\n=== Section 列表 ===\n", .{});
     std.debug.print("database section 存在: {}\n", .{ini.hasSection("database")});

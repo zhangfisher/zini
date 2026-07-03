@@ -94,14 +94,14 @@ pub fn main() !void {
 
         try config.loadFromString(config_content);
 
-        const host = config.getSection("database", "host").?;
-        const port = try config.getSectionU16("database", "port");
-        const ssl = try config.getSectionBool("database", "ssl");
-        const timeout = try config.getSectionU32("database", "timeout");
-        const max_conn = try config.getSectionU8("database", "max_connections");
-        const retry = try config.getSectionI8("database", "retry_count");
-        const pool_size = try config.getSectionU32("database", "pool_size");
-        const conn_timeout = try config.getSectionF32("database", "connection_timeout");
+        const host = config.get("database.host").?;
+        const port = try config.getU16("database.port");
+        const ssl = try config.getBool("database.ssl");
+        const timeout = try config.getU32("database.timeout");
+        const max_conn = try config.getU8("database.max_connections");
+        const retry = try config.getI8("database.retry_count");
+        const pool_size = try config.getU32("database.pool_size");
+        const conn_timeout = try config.getF32("database.connection_timeout");
 
         std.debug.print("数据库配置:\n", .{});
         std.debug.print("  主机: {s}\n", .{host});
@@ -154,11 +154,11 @@ pub fn main() !void {
         const max_users = try config.getU32("max_users");
 
         // Section 中的混合使用
-        const host = config.getSection("database", "host").?;
-        const port = try config.getSectionU16("database", "port");
-        const enabled = try config.getSectionBool("database", "enabled");
-        const connections = try config.getSectionU8("database", "connections");
-        const db_timeout = try config.getSectionFloat("database", "timeout");
+        const host = config.get("database.host").?;
+        const port = try config.getU16("database.port");
+        const enabled = try config.getBool("database.enabled");
+        const connections = try config.getU8("database.connections");
+        const db_timeout = try config.getFloat("database.timeout");
 
         std.debug.print("全局配置:\n", .{});
         std.debug.print("  app_name (string): {s}\n", .{app_name});
@@ -241,18 +241,18 @@ pub fn main() !void {
         std.debug.print("  保存间隔: {}s\n", .{save_interval});
 
         // 玩家属性
-        const player_name = config.getSection("player", "name").?;
-        const player_level = try config.getSectionU32("player", "level");
-        const player_health = try config.getSectionF32("player", "health");
-        const player_mana = try config.getSectionF32("player", "mana");
-        const player_speed = try config.getSectionF32("player", "speed");
-        const player_strength = try config.getSectionU16("player", "strength");
+        const player_name = config.get("player.name").?;
+        const player_level = try config.getU32("player.level");
+        const player_health = try config.getF32("player.health");
+        const player_mana = try config.getF32("player.mana");
+        const player_speed = try config.getF32("player.speed");
+        const player_strength = try config.getU16("player.strength");
 
         std.debug.print("玩家属性:\n", .{});
         std.debug.print("  名称: {s}\n", .{player_name});
         std.debug.print("  等级: {}\n", .{player_level});
-        std.debug.print("  生命值: {d:.1}/{d:.1}\n", .{player_health, try config.getSectionF32("player", "max_health")});
-        std.debug.print("  魔法值: {d:.1}/{d:.1}\n", .{player_mana, try config.getSectionF32("player", "max_mana")});
+        std.debug.print("  生命值: {d:.1}/{d:.1}\n", .{player_health, try config.getF32("player.max_health")});
+        std.debug.print("  魔法值: {d:.1}/{d:.1}\n", .{player_mana, try config.getF32("player.max_mana")});
         std.debug.print("  移动速度: {d:.1}\n", .{player_speed});
         std.debug.print("  力量: {}\n", .{player_strength});
 

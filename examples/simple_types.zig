@@ -44,13 +44,13 @@ pub fn main() !void {
         var config = Ini.init(allocator);
         defer config.deinit();
 
-        try config.setSection("database", "port", "5432");
-        try config.setSection("database", "ssl", "true");
-        try config.setSection("database", "timeout", "30.5");
+        try config.set("database.port", "5432");
+        try config.set("database.ssl", "true");
+        try config.set("database.timeout", "30.5");
 
-        const port = try config.getSectionInt("database", "port");
-        const ssl = try config.getSectionBool("database", "ssl");
-        const timeout = try config.getSectionFloat("database", "timeout");
+        const port = try config.getInt("database.port");
+        const ssl = try config.getBool("database.ssl");
+        const timeout = try config.getFloat("database.timeout");
 
         std.debug.print("port: {}\n", .{port});
         std.debug.print("ssl: {}\n", .{ssl});
@@ -63,9 +63,9 @@ pub fn main() !void {
     {
         std.debug.print("示例 3: 配置文件加载\n", .{});
         const config_content =
-            \\app.debug = true
-            \\app.port = 8080
-            \\app.timeout = 30.5
+            \\debug = true
+            \\port = 8080
+            \\timeout = 30.5
             \\
             \\[database]
             \\port = 5432
@@ -78,16 +78,16 @@ pub fn main() !void {
 
         try config.loadFromString(config_content);
 
-        const debug = try config.getBool("app.debug");
-        const port = try config.getInt("app.port");
-        const timeout = try config.getFloat("app.timeout");
+        const debug = try config.getBool("debug");
+        const port = try config.getInt("port");
+        const timeout = try config.getFloat("timeout");
 
-        std.debug.print("app.debug: {}\n", .{debug});
-        std.debug.print("app.port: {}\n", .{port});
-        std.debug.print("app.timeout: {d:.1}s\n", .{timeout});
+        std.debug.print("debug: {}\n", .{debug});
+        std.debug.print("port: {}\n", .{port});
+        std.debug.print("timeout: {d:.1}s\n", .{timeout});
 
-        const db_port = try config.getSectionInt("database", "port");
-        const db_ssl = try config.getSectionBool("database", "ssl");
+        const db_port = try config.getInt("database.port");
+        const db_ssl = try config.getBool("database.ssl");
 
         std.debug.print("database.port: {}\n", .{db_port});
         std.debug.print("database.ssl: {}\n", .{db_ssl});
