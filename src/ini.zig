@@ -27,54 +27,58 @@ pub const Error = error{
     FileNotFound,
     WriteError,
     OutOfMemory,
-    TypeConversionError,
-    Overflow,
     InvalidCharacter,
 };
 
-/// A single key-value entry with type information
-pub const Entry = struct {
+/// A single key-value schema with type information
+pub const Schema = struct {
     key: []const u8,
     value: []const u8,
     datatype: DataType,
-    /// 文档注释（从配置文件中解析出来的注释）
-    doc: ?[]const u8 = null,
     /// 标题（从 @title 注释标记解析）
     title: ?[]const u8 = null,
-    /// 描述（从 @description 注释标记解析）
+    /// 描述（其他所有普通注释）
     description: ?[]const u8 = null,
 
-    /// Create a new entry with automatic type inference
-    pub fn init(allocator: Allocator, key: []const u8, value: []const u8) Allocator.Error!Entry {
+    /// Create a new schema with automatic type inference
+    pub fn init(allocator: Allocator, key: []const u8, value: []const u8) Allocator.Error!Schema {
         const key_copy = try allocator.dupe(u8, key);
         const value_copy = try allocator.dupe(u8, value);
 
-        return Entry{
+        return Schema{
             .key = key_copy,
             .value = value_copy,
             .datatype = DataType.infer(value),
         };
     }
 
-    /// Create a new entry with explicit type
-    pub fn initWithType(allocator: Allocator, key: []const u8, value: []const u8, datatype: DataType) Allocator.Error!Entry {
+    /// Create a new schema with explicit type
+    pub fn initWithType(allocator: Allocator, key: []const u8, value: []const u8, datatype: DataType) Allocator.Error!Schema {
         const key_copy = try allocator.dupe(u8, key);
         const value_copy = try allocator.dupe(u8, value);
 
-        return Entry{
+        return Schema{
             .key = key_copy,
             .value = value_copy,
             .datatype = datatype,
         };
     }
 
-    /// Free entry resources
-    pub fn deinit(self: *Entry, allocator: Allocator) void {
+    /// Free schema resources
+    pub fn deinit(self: *Schema, allocator: Allocator) void {
         allocator.free(self.key);
         allocator.free(self.value);
-        if (self.doc) |doc_text| {
-            allocator.free(doc_text);
+        if (self.title) |title_text| {
+            allocator.free(title_text);
         }
+        if (self.description) |desc_text| {
+            allocator.free(desc_text);
+        }
+    }
+
+    /// Free schema resources except key (used when key is owned by HashMap)
+    pub fn deinitWithoutKey(self: *Schema, allocator: Allocator) void {
+        allocator.free(self.value);
         if (self.title) |title_text| {
             allocator.free(title_text);
         }
@@ -84,62 +88,62 @@ pub const Entry = struct {
     }
 
     /// Get value as boolean
-    pub fn asBool(self: *const Entry) !bool {
+    pub fn asBool(self: *const Schema) !bool {
         return TypeConverter.toBool(self.value);
     }
 
     /// Get value as u8
-    pub fn asU8(self: *const Entry) !u8 {
+    pub fn asU8(self: *const Schema) !u8 {
         return TypeConverter.toU8(self.value);
     }
 
     /// Get value as u16
-    pub fn asU16(self: *const Entry) !u16 {
+    pub fn asU16(self: *const Schema) !u16 {
         return TypeConverter.toU16(self.value);
     }
 
     /// Get value as u32
-    pub fn asU32(self: *const Entry) !u32 {
+    pub fn asU32(self: *const Schema) !u32 {
         return TypeConverter.toU32(self.value);
     }
 
     /// Get value as u64
-    pub fn asU64(self: *const Entry) !u64 {
+    pub fn asU64(self: *const Schema) !u64 {
         return TypeConverter.toU64(self.value);
     }
 
     /// Get value as i8
-    pub fn asI8(self: *const Entry) !i8 {
+    pub fn asI8(self: *const Schema) !i8 {
         return TypeConverter.toI8(self.value);
     }
 
     /// Get value as i16
-    pub fn asI16(self: *const Entry) !i16 {
+    pub fn asI16(self: *const Schema) !i16 {
         return TypeConverter.toI16(self.value);
     }
 
     /// Get value as i32
-    pub fn asI32(self: *const Entry) !i32 {
+    pub fn asI32(self: *const Schema) !i32 {
         return TypeConverter.toI32(self.value);
     }
 
     /// Get value as i64
-    pub fn asI64(self: *const Entry) !i64 {
+    pub fn asI64(self: *const Schema) !i64 {
         return TypeConverter.toI64(self.value);
     }
 
     /// Get value as f32
-    pub fn asF32(self: *const Entry) !f32 {
+    pub fn asF32(self: *const Schema) !f32 {
         return TypeConverter.toF32(self.value);
     }
 
     /// Get value as f64
-    pub fn asF64(self: *const Entry) !f64 {
+    pub fn asF64(self: *const Schema) !f64 {
         return TypeConverter.toF64(self.value);
     }
 
     /// Get value as integer (generic)
-    pub fn asInt(self: *const Entry) !i64 {
+    pub fn asInt(self: *const Schema) !i64 {
         return switch (self.datatype) {
             .u8 => @intCast(try self.asU8()),
             .u16 => @intCast(try self.asU16()),
@@ -155,7 +159,7 @@ pub const Entry = struct {
     }
 
     /// Get value as float (generic)
-    pub fn asFloat(self: *const Entry) !f64 {
+    pub fn asFloat(self: *const Schema) !f64 {
         return switch (self.datatype) {
             .f32 => @floatCast(try self.asF32()),
             .f64 => try self.asF64(),
@@ -165,193 +169,72 @@ pub const Entry = struct {
     }
 
     /// Get value as string
-    pub fn asString(self: *const Entry) []const u8 {
+    pub fn asString(self: *const Schema) []const u8 {
         return TypeConverter.toString(self.value);
     }
 
     /// Check if value matches expected type
-    pub fn isType(self: *const Entry, expected: DataType) bool {
+    pub fn isType(self: *const Schema, expected: DataType) bool {
         return self.datatype == expected;
     }
 };
 
-/// Schema is an alias for Entry - provides type information for a key-value pair
-pub const Schema = Entry;
-
-/// A section containing multiple entries
-pub const Section = struct {
-    name: []const u8,
-    entries: StringHashMap(Entry),
-
-    /// Create a new section
-    pub fn init(allocator: Allocator, name: []const u8) Allocator.Error!Section {
-        const name_copy = try allocator.dupe(u8, name);
-        return .{
-            .name = name_copy,
-            .entries = StringHashMap(Entry).init(allocator),
-        };
-    }
-
-    /// Free section resources
-    pub fn deinit(self: *Section, allocator: Allocator) void {
-        var entry_iter = self.entries.iterator();
-        while (entry_iter.next()) |entry| {
-            // Free entry resources (including doc, title, description)
-            entry.value_ptr.deinit(allocator);
-            // Free the key stored in the hash map
-            allocator.free(entry.key_ptr.*);
-        }
-        self.entries.deinit();
-        allocator.free(self.name);
-    }
-
-    /// Get a value by key
-    pub fn get(self: *const Section, key: []const u8) ?[]const u8 {
-        if (self.entries.get(key)) |entry| {
-            return entry.value;
-        }
-        return null;
-    }
-
-    /// Get entry by key
-    pub fn getEntry(self: *const Section, key: []const u8) ?*const Entry {
-        return if (self.entries.getPtr(key)) |ptr| ptr else null;
-    }
-
-    /// 辅助函数：统一处理类型转换
-    fn getTypedValue(comptime T: type, entries: *const StringHashMap(Entry), key: []const u8, comptime converterFn: fn ([]const u8) anyerror!T) !T {
-        if (entries.get(key)) |entry| {
-            return converterFn(entry.value);
-        }
-        return error.KeyNotFound;
-    }
-
-    /// Get value as boolean
-    pub fn getBool(self: *const Section, key: []const u8) !bool {
-        return getTypedValue(bool, &self.entries, key, TypeConverter.toBool);
-    }
-
-    /// Get value as u8
-    pub fn getU8(self: *const Section, key: []const u8) !u8 {
-        return getTypedValue(u8, &self.entries, key, TypeConverter.toU8);
-    }
-
-    /// Get value as u16
-    pub fn getU16(self: *const Section, key: []const u8) !u16 {
-        return getTypedValue(u16, &self.entries, key, TypeConverter.toU16);
-    }
-
-    /// Get value as u32
-    pub fn getU32(self: *const Section, key: []const u8) !u32 {
-        return getTypedValue(u32, &self.entries, key, TypeConverter.toU32);
-    }
-
-    /// Get value as u64
-    pub fn getU64(self: *const Section, key: []const u8) !u64 {
-        return getTypedValue(u64, &self.entries, key, TypeConverter.toU64);
-    }
-
-    /// Get value as i8
-    pub fn getI8(self: *const Section, key: []const u8) !i8 {
-        return getTypedValue(i8, &self.entries, key, TypeConverter.toI8);
-    }
-
-    /// Get value as i16
-    pub fn getI16(self: *const Section, key: []const u8) !i16 {
-        return getTypedValue(i16, &self.entries, key, TypeConverter.toI16);
-    }
-
-    /// Get value as i32
-    pub fn getI32(self: *const Section, key: []const u8) !i32 {
-        return getTypedValue(i32, &self.entries, key, TypeConverter.toI32);
-    }
-
-    /// Get value as i64
-    pub fn getI64(self: *const Section, key: []const u8) !i64 {
-        return getTypedValue(i64, &self.entries, key, TypeConverter.toI64);
-    }
-
-    /// Get value as f32
-    pub fn getF32(self: *const Section, key: []const u8) !f32 {
-        return getTypedValue(f32, &self.entries, key, TypeConverter.toF32);
-    }
-
-    /// Get value as f64
-    pub fn getF64(self: *const Section, key: []const u8) !f64 {
-        return getTypedValue(f64, &self.entries, key, TypeConverter.toF64);
-    }
-
-    /// Get value as integer (generic)
-    pub fn getInt(self: *const Section, key: []const u8) !i64 {
-        return self.getI64(key);
-    }
-
-    /// Get value as float (generic)
-    pub fn getFloat(self: *const Section, key: []const u8) !f64 {
-        return self.getF64(key);
-    }
-
-    /// Set a value by key
-    pub fn set(self: *Section, allocator: Allocator, key: []const u8, value: []const u8) Allocator.Error!void {
-        if (self.entries.get(key)) |_| {
-            // Remove old entry and add new one
-            const old_entry = self.entries.fetchRemove(key).?;
-            // Manually free the entry's memory
-            allocator.free(old_entry.value.value);
-            allocator.free(old_entry.value.key);
-            allocator.free(old_entry.key);
-        }
-
-        // Add new entry
-        const new_entry = try Entry.init(allocator, key, value);
-        try self.entries.put(try allocator.dupe(u8, key), new_entry);
-    }
-
-    /// Remove a key
-    pub fn remove(self: *Section, allocator: Allocator, key: []const u8) bool {
-        if (self.entries.fetchRemove(key)) |kv| {
-            // Free entry value
-            allocator.free(kv.value.value);
-            allocator.free(kv.value.key);
-            // Free the key stored in the hash map
-            allocator.free(kv.key);
-            return true;
-        }
-        return false;
-    }
+/// Parsed key result for <section>.<key> syntax
+const ParsedKey = union(enum) {
+    /// Global key (no dot found)
+    global: []const u8,
+    /// Section.key syntax (dot found)
+    section_key: struct {
+        section: []const u8,
+        key: []const u8,
+    },
 };
+
+/// Parse a key string into ParsedKey (supports <section>.<key> syntax)
+/// Returns: ParsedKey.global if no dot found, ParsedKey.section_key if dot found
+fn parseKey(key: []const u8) ParsedKey {
+    if (std.mem.indexOfScalar(u8, key, '.')) |dot_index| {
+        // Parse section.key syntax
+        const section_name = key[0..dot_index];
+        const actual_key = key[dot_index + 1 ..];
+        return .{ .section_key = .{ .section = section_name, .key = actual_key } };
+    }
+    return .{ .global = key };
+}
 
 /// Main INI structure
 pub const Ini = struct {
     allocator: Allocator,
-    global_entries: StringHashMap(Entry),
-    sections: StringHashMap(Section),
+    schemas: StringHashMap(Schema),
+    sections: StringHashMap(Ini),
 
     /// Create a new empty Ini structure
     pub fn init(allocator: Allocator) Ini {
         return .{
             .allocator = allocator,
-            .global_entries = StringHashMap(Entry).init(allocator),
-            .sections = StringHashMap(Section).init(allocator),
+            .schemas = StringHashMap(Schema).init(allocator),
+            .sections = StringHashMap(Ini).init(allocator),
         };
     }
 
     /// Free all resources
     pub fn deinit(self: *Ini) void {
         // Free global entries
-        var entry_iter = self.global_entries.iterator();
-        while (entry_iter.next()) |entry| {
-            // Free entry resources (including doc, title, description)
-            entry.value_ptr.deinit(self.allocator);
-            // Free the key stored in the hash map
-            self.allocator.free(entry.key_ptr.*);
+        var schema_iter = self.schemas.iterator();
+        while (schema_iter.next()) |schema| {
+            // Free schema resources except key (key is owned by HashMap)
+            @constCast(schema.value_ptr).deinitWithoutKey(self.allocator);
+            // Free the key stored in the hash map (also frees Schema.key since they share allocation)
+            self.allocator.free(schema.key_ptr.*);
         }
-        self.global_entries.deinit();
+        self.schemas.deinit();
 
-        // Free sections
+        // Free sections (now Inis instead of Sections)
         var section_iter = self.sections.iterator();
         while (section_iter.next()) |section| {
-            section.value_ptr.deinit(self.allocator);
+            // Recursively deinit the nested Ini
+            section.value_ptr.deinit();
+            // Free the section name key
             self.allocator.free(section.key_ptr.*);
         }
         self.sections.deinit();
@@ -385,16 +268,16 @@ pub const Ini = struct {
     pub fn loadFromString(self: *Ini, content: []const u8) Error!void {
         // 清空现有数据
         {
-            var entry_iter = self.global_entries.iterator();
-            while (entry_iter.next()) |entry| {
-                entry.value_ptr.deinit(self.allocator);
-                self.allocator.free(entry.key_ptr.*);
+            var schema_iter = self.schemas.iterator();
+            while (schema_iter.next()) |schema| {
+                schema.value_ptr.deinit(self.allocator);
+                self.allocator.free(schema.key_ptr.*);
             }
-            self.global_entries.clearRetainingCapacity();
+            self.schemas.clearRetainingCapacity();
 
             var section_iter = self.sections.iterator();
             while (section_iter.next()) |section| {
-                section.value_ptr.deinit(self.allocator);
+                section.value_ptr.deinit();
                 self.allocator.free(section.key_ptr.*);
             }
             self.sections.clearRetainingCapacity();
@@ -437,296 +320,85 @@ pub const Ini = struct {
 
     /// Format INI content to string
     fn formatContent(self: *const Ini, allocator: Allocator) Allocator.Error![]const u8 {
-        // Calculate total size needed
-        var total_size: usize = 0;
+        var buffer: std.ArrayList(u8) = .empty;
+        defer buffer.deinit(allocator);
 
-        // Global entries
-        var entry_iter = self.global_entries.iterator();
-        while (entry_iter.next()) |entry| {
-            // 计算 doc、title、description 注释的长度（顺序：doc → title → description）
-            if (entry.value_ptr.doc) |doc| {
-                // doc 可能包含多行，需要为每一行计算 "# " 前缀
-                var line_count: usize = 0;
-                var doc_lines = std.mem.splitScalar(u8, doc, '\n');
-                while (doc_lines.next()) |line| {
-                    line_count += 1;
-                    _ = line;
-                }
-                total_size += line_count * 2 + doc.len + line_count; // 每行 "# " + 内容 + 换行符
-            }
-            if (entry.value_ptr.title) |title| {
-                total_size += 9 + title.len + 1; // "# @title xxx\n"
-            }
-            if (entry.value_ptr.description) |desc| {
-                total_size += 16 + desc.len + 1; // "# @description xxx\n"
-            }
-            total_size += entry.key_ptr.len + 3 + entry.value_ptr.value.len + 1; // "key = value\n"
+        // Write global entries
+        var schema_iter = self.schemas.iterator();
+        while (schema_iter.next()) |entry| {
+            try formatSchemaToBuffer(allocator, &buffer, entry.value_ptr.*);
         }
 
         // Blank line between global and sections
-        if (self.global_entries.count() > 0 and self.sections.count() > 0) {
-            total_size += 1;
+        if (self.schemas.count() > 0 and self.sections.count() > 0) {
+            try buffer.append(allocator, '\n');
         }
 
-        // Sections
+        // Write sections (now Inis)
         var section_iter = self.sections.iterator();
         while (section_iter.next()) |section| {
-            total_size += 1 + section.value_ptr.name.len + 2; // "[name]\n"
-            var entry_iter2 = section.value_ptr.entries.iterator();
-            while (entry_iter2.next()) |entry| {
-                // 计算 doc、title、description 注释的长度（顺序：doc → title → description）
-                if (entry.value_ptr.doc) |doc| {
-                    // doc 可能包含多行，需要为每一行计算 "# " 前缀
-                    var line_count: usize = 0;
-                    var doc_lines = std.mem.splitScalar(u8, doc, '\n');
-                    while (doc_lines.next()) |line| {
-                        line_count += 1;
-                        _ = line;
-                    }
-                    total_size += line_count * 2 + doc.len + line_count; // 每行 "# " + 内容 + 换行符
-                }
-                if (entry.value_ptr.title) |title| {
-                    total_size += 9 + title.len + 1; // "# @title xxx\n"
-                }
-                if (entry.value_ptr.description) |desc| {
-                    total_size += 16 + desc.len + 1; // "# @description xxx\n"
-                }
-                total_size += entry.key_ptr.len + 3 + entry.value_ptr.value.len + 1; // "key = value\n"
+            const section_name = section.key_ptr.*;
+            const section_ini = section.value_ptr;
+
+            const section_header = try std.fmt.allocPrint(allocator, "[{s}]\n", .{section_name});
+            defer allocator.free(section_header);
+            try buffer.appendSlice(allocator, section_header);
+
+            var section_schema_iter = section_ini.schemas.iterator();
+            while (section_schema_iter.next()) |schema| {
+                try formatSchemaToBuffer(allocator, &buffer, schema.value_ptr.*);
             }
-            total_size += 1; // blank line after section
+
+            try buffer.append(allocator, '\n');
         }
 
-        // Allocate buffer
-        var result = try allocator.alloc(u8, total_size);
-        errdefer allocator.free(result);
-        var pos: usize = 0;
+        return buffer.toOwnedSlice(allocator);
+    }
 
-        // Write global entries
-        entry_iter = self.global_entries.iterator();
-        while (entry_iter.next()) |entry| {
-            // 按顺序写入注释：doc → @title → @description
-            if (entry.value_ptr.doc) |doc| {
-                // doc 可能包含多行，需要为每一行添加 "# " 前缀
-                var doc_lines = std.mem.splitScalar(u8, doc, '\n');
-                while (doc_lines.next()) |line| {
-                    result[pos] = '#';
-                    pos += 1;
-                    result[pos] = ' ';
-                    pos += 1;
-                    @memcpy(result[pos..][0..line.len], line);
-                    pos += line.len;
-                    result[pos] = '\n';
-                    pos += 1;
-                }
-            }
-            if (entry.value_ptr.title) |title| {
-                result[pos] = '#';
-                pos += 1;
-                result[pos] = ' ';
-                pos += 1;
-                result[pos] = '@';
-                pos += 1;
-                result[pos] = 't';
-                pos += 1;
-                result[pos] = 'i';
-                pos += 1;
-                result[pos] = 't';
-                pos += 1;
-                result[pos] = 'l';
-                pos += 1;
-                result[pos] = 'e';
-                pos += 1;
-                result[pos] = ' ';
-                pos += 1;
-                @memcpy(result[pos..][0..title.len], title);
-                pos += title.len;
-                result[pos] = '\n';
-                pos += 1;
-            }
-            if (entry.value_ptr.description) |desc| {
-                result[pos] = '#';
-                pos += 1;
-                result[pos] = ' ';
-                pos += 1;
-                result[pos] = '@';
-                pos += 1;
-                @memcpy(result[pos..][0.."d".len], "d");
-                pos += 1;
-                @memcpy(result[pos..][0.."e".len], "e");
-                pos += 1;
-                @memcpy(result[pos..][0.."s".len], "s");
-                pos += 1;
-                @memcpy(result[pos..][0.."c".len], "c");
-                pos += 1;
-                @memcpy(result[pos..][0.."r".len], "r");
-                pos += 1;
-                @memcpy(result[pos..][0.."i".len], "i");
-                pos += 1;
-                @memcpy(result[pos..][0.."p".len], "p");
-                pos += 1;
-                @memcpy(result[pos..][0.."t".len], "t");
-                pos += 1;
-                @memcpy(result[pos..][0.."i".len], "i");
-                pos += 1;
-                @memcpy(result[pos..][0.."o".len], "o");
-                pos += 1;
-                @memcpy(result[pos..][0.."n".len], "n");
-                pos += 1;
-                result[pos] = ' ';
-                pos += 1;
-                @memcpy(result[pos..][0..desc.len], desc);
-                pos += desc.len;
-                result[pos] = '\n';
-                pos += 1;
-            }
-            // 写入 key = value
-            @memcpy(result[pos..][0..entry.key_ptr.len], entry.key_ptr.*);
-            pos += entry.key_ptr.len;
-            result[pos] = ' ';
-            pos += 1;
-            result[pos] = '=';
-            pos += 1;
-            result[pos] = ' ';
-            pos += 1;
-            @memcpy(result[pos..][0..entry.value_ptr.value.len], entry.value_ptr.value);
-            pos += entry.value_ptr.value.len;
-            result[pos] = '\n';
-            pos += 1;
+    /// Helper function to format a single schema to buffer
+    fn formatSchemaToBuffer(allocator: Allocator, buffer: *std.ArrayList(u8), schema: Schema) !void {
+        // Write @title comment if present
+        if (schema.title) |title| {
+            const title_line = try std.fmt.allocPrint(allocator, "# @title {s}\n", .{title});
+            defer allocator.free(title_line);
+            try buffer.appendSlice(allocator, title_line);
         }
 
-        // Blank line
-        if (self.global_entries.count() > 0 and self.sections.count() > 0) {
-            result[pos] = '\n';
-            pos += 1;
-        }
-
-        // Write sections
-        section_iter = self.sections.iterator();
-        while (section_iter.next()) |section| {
-            result[pos] = '[';
-            pos += 1;
-            @memcpy(result[pos..][0..section.value_ptr.name.len], section.value_ptr.name);
-            pos += section.value_ptr.name.len;
-            result[pos] = ']';
-            pos += 1;
-            result[pos] = '\n';
-            pos += 1;
-
-            var entry_iter2 = section.value_ptr.entries.iterator();
-            while (entry_iter2.next()) |entry| {
-                // 按顺序写入注释：doc → @title → @description
-                if (entry.value_ptr.doc) |doc| {
-                    // doc 可能包含多行，需要为每一行添加 "# " 前缀
-                    var doc_lines = std.mem.splitScalar(u8, doc, '\n');
-                    while (doc_lines.next()) |line| {
-                        result[pos] = '#';
-                        pos += 1;
-                        result[pos] = ' ';
-                        pos += 1;
-                        @memcpy(result[pos..][0..line.len], line);
-                        pos += line.len;
-                        result[pos] = '\n';
-                        pos += 1;
-                    }
-                }
-                if (entry.value_ptr.title) |title| {
-                    result[pos] = '#';
-                    pos += 1;
-                    result[pos] = ' ';
-                    pos += 1;
-                    result[pos] = '@';
-                    pos += 1;
-                    result[pos] = 't';
-                    pos += 1;
-                    result[pos] = 'i';
-                    pos += 1;
-                    result[pos] = 't';
-                    pos += 1;
-                    result[pos] = 'l';
-                    pos += 1;
-                    result[pos] = 'e';
-                    pos += 1;
-                    result[pos] = ' ';
-                    pos += 1;
-                    @memcpy(result[pos..][0..title.len], title);
-                    pos += title.len;
-                    result[pos] = '\n';
-                    pos += 1;
-                }
-                if (entry.value_ptr.description) |desc| {
-                    result[pos] = '#';
-                    pos += 1;
-                    result[pos] = ' ';
-                    pos += 1;
-                    result[pos] = '@';
-                    pos += 1;
-                    @memcpy(result[pos..][0.."d".len], "d");
-                    pos += 1;
-                    @memcpy(result[pos..][0.."e".len], "e");
-                    pos += 1;
-                    @memcpy(result[pos..][0.."s".len], "s");
-                    pos += 1;
-                    @memcpy(result[pos..][0.."c".len], "c");
-                    pos += 1;
-                    @memcpy(result[pos..][0.."r".len], "r");
-                    pos += 1;
-                    @memcpy(result[pos..][0.."i".len], "i");
-                    pos += 1;
-                    @memcpy(result[pos..][0.."p".len], "p");
-                    pos += 1;
-                    @memcpy(result[pos..][0.."t".len], "t");
-                    pos += 1;
-                    @memcpy(result[pos..][0.."i".len], "i");
-                    pos += 1;
-                    @memcpy(result[pos..][0.."o".len], "o");
-                    pos += 1;
-                    @memcpy(result[pos..][0.."n".len], "n");
-                    pos += 1;
-                    result[pos] = ' ';
-                    pos += 1;
-                    @memcpy(result[pos..][0..desc.len], desc);
-                    pos += desc.len;
-                    result[pos] = '\n';
-                    pos += 1;
-                }
-                // 写入 key = value
-                @memcpy(result[pos..][0..entry.key_ptr.len], entry.key_ptr.*);
-                pos += entry.key_ptr.len;
-                result[pos] = ' ';
-                pos += 1;
-                result[pos] = '=';
-                pos += 1;
-                result[pos] = ' ';
-                pos += 1;
-                @memcpy(result[pos..][0..entry.value_ptr.value.len], entry.value_ptr.value);
-                pos += entry.value_ptr.value.len;
-                result[pos] = '\n';
-                pos += 1;
+        // Write description comments if present
+        if (schema.description) |desc| {
+            var line_iter = std.mem.splitScalar(u8, desc, '\n');
+            while (line_iter.next()) |line| {
+                const desc_line = try std.fmt.allocPrint(allocator, "# {s}\n", .{line});
+                defer allocator.free(desc_line);
+                try buffer.appendSlice(allocator, desc_line);
             }
-
-            result[pos] = '\n';
-            pos += 1;
         }
 
-        return result[0..pos];
+        // Write key = value
+        const key_value = try std.fmt.allocPrint(allocator, "{s} = {s}\n", .{ schema.key, schema.value });
+        defer allocator.free(key_value);
+        try buffer.appendSlice(allocator, key_value);
     }
 
     /// Write INI content to a writer
     fn writeTo(self: *const Ini, writer: anytype) Error!void {
         // Write global entries first
-        var entry_iter = self.global_entries.iterator();
-        while (entry_iter.next()) |entry| {
-            try writer.print("{s} = {s}\n", .{ entry.key_ptr.*, entry.value_ptr.value });
+        var schema_iter = self.schemas.iterator();
+        while (schema_iter.next()) |schema| {
+            try writer.print("{s} = {s}\n", .{ schema.key_ptr.*, schema.value_ptr.value });
         }
 
-        // Write sections
+        // Write sections (now Inis)
         var section_iter = self.sections.iterator();
         while (section_iter.next()) |section| {
-            try writer.print("[{s}]\n", .{section.value_ptr.name});
+            const section_name = section.key_ptr.*;
+            const section_ini = section.value_ptr;
 
-            var entry_iter2 = section.value_ptr.entries.iterator();
-            while (entry_iter2.next()) |entry| {
-                try writer.print("{s} = {s}\n", .{ entry.key_ptr.*, entry.value_ptr.value });
+            try writer.print("[{s}]\n", .{section_name});
+
+            var schema_iter2 = section_ini.schemas.iterator();
+            while (schema_iter2.next()) |schema| {
+                try writer.print("{s} = {s}\n", .{ schema.key_ptr.*, schema.value_ptr.value });
             }
 
             try writer.writeByte('\n');
@@ -735,23 +407,61 @@ pub const Ini = struct {
 
     /// Get a global value
     pub fn get(self: *const Ini, key: []const u8) ?[]const u8 {
-        if (self.global_entries.get(key)) |entry| {
-            return entry.value;
+        switch (parseKey(key)) {
+            .section_key => |parsed| {
+                // Get from section
+                if (self.sections.get(parsed.section)) |section| {
+                    return section.get(parsed.key);
+                }
+                return null;
+            },
+            .global => |global_key| {
+                // Get from global schemas
+                if (self.schemas.get(global_key)) |schema| {
+                    return schema.value;
+                }
+                return null;
+            },
         }
-        return null;
     }
 
-    /// Get global entry
-    pub fn getEntry(self: *const Ini, key: []const u8) ?*const Entry {
-        return if (self.global_entries.getPtr(key)) |ptr| ptr else null;
+    /// Get global schema（支持 section.key 语法）
+    pub fn getSchema(self: *const Ini, key: []const u8) ?*const Schema {
+        switch (parseKey(key)) {
+            .section_key => |parsed| {
+                // Get from section
+                if (self.sections.get(parsed.section)) |section| {
+                    return section.getSchema(parsed.key);
+                }
+                return null;
+            },
+            .global => |global_key| {
+                // Get from global schemas
+                return if (self.schemas.getPtr(global_key)) |ptr| ptr else null;
+            },
+        }
     }
 
     /// 辅助函数：统一处理全局值的类型转换
     fn getGlobalTypedValue(comptime T: type, ini: *const Ini, key: []const u8, comptime converterFn: fn ([]const u8) anyerror!T) !T {
-        if (ini.global_entries.get(key)) |entry| {
-            return converterFn(entry.value);
+        switch (parseKey(key)) {
+            .section_key => |parsed| {
+                // Get from section
+                if (ini.sections.get(parsed.section)) |section| {
+                    if (section.get(parsed.key)) |value_str| {
+                        return converterFn(value_str);
+                    }
+                }
+                return error.KeyNotFound;
+            },
+            .global => |global_key| {
+                // Get from global schemas
+                if (ini.schemas.get(global_key)) |schema| {
+                    return converterFn(schema.value);
+                }
+                return error.KeyNotFound;
+            },
         }
-        return error.KeyNotFound;
     }
 
     /// Get global value as boolean
@@ -819,144 +529,227 @@ pub const Ini = struct {
         return self.getF64(key);
     }
 
-    /// Get a value from a section
-    pub fn getSection(self: *const Ini, section_name: []const u8, key: []const u8) ?[]const u8 {
-        if (self.sections.get(section_name)) |section| {
-            return section.get(key);
-        }
-        return null;
-    }
-
-    /// Get entry from a section
-    pub fn getSectionEntry(self: *const Ini, section_name: []const u8, key: []const u8) ?Entry {
-        if (self.sections.get(section_name)) |section_kv| {
-            if (section_kv.value.entries.get(key)) |entry_kv| {
-                return entry_kv.value;
-            }
-        }
-        return null;
-    }
-
-    /// 辅助函数：统一处理 section 值的类型转换
-    fn getSectionTypedValue(comptime T: type, ini: *const Ini, section_name: []const u8, key: []const u8, comptime converterFn: fn ([]const u8) anyerror!T) !T {
-        if (ini.getSection(section_name, key)) |value_str| {
-            return converterFn(value_str);
-        }
-        return error.KeyNotFound;
-    }
-
-    /// Get section value as boolean
-    pub fn getSectionBool(self: *const Ini, section_name: []const u8, key: []const u8) !bool {
-        return getSectionTypedValue(bool, self, section_name, key, TypeConverter.toBool);
-    }
-
-    /// Get section value as u8
-    pub fn getSectionU8(self: *const Ini, section_name: []const u8, key: []const u8) !u8 {
-        return getSectionTypedValue(u8, self, section_name, key, TypeConverter.toU8);
-    }
-
-    /// Get section value as u16
-    pub fn getSectionU16(self: *const Ini, section_name: []const u8, key: []const u8) !u16 {
-        return getSectionTypedValue(u16, self, section_name, key, TypeConverter.toU16);
-    }
-
-    /// Get section value as u32
-    pub fn getSectionU32(self: *const Ini, section_name: []const u8, key: []const u8) !u32 {
-        return getSectionTypedValue(u32, self, section_name, key, TypeConverter.toU32);
-    }
-
-    /// Get section value as u64
-    pub fn getSectionU64(self: *const Ini, section_name: []const u8, key: []const u8) !u64 {
-        return getSectionTypedValue(u64, self, section_name, key, TypeConverter.toU64);
-    }
-
-    /// Get section value as i8
-    pub fn getSectionI8(self: *const Ini, section_name: []const u8, key: []const u8) !i8 {
-        return getSectionTypedValue(i8, self, section_name, key, TypeConverter.toI8);
-    }
-
-    /// Get section value as i16
-    pub fn getSectionI16(self: *const Ini, section_name: []const u8, key: []const u8) !i16 {
-        return getSectionTypedValue(i16, self, section_name, key, TypeConverter.toI16);
-    }
-
-    /// Get section value as i32
-    pub fn getSectionI32(self: *const Ini, section_name: []const u8, key: []const u8) !i32 {
-        return getSectionTypedValue(i32, self, section_name, key, TypeConverter.toI32);
-    }
-
-    /// Get section value as i64
-    pub fn getSectionI64(self: *const Ini, section_name: []const u8, key: []const u8) !i64 {
-        return getSectionTypedValue(i64, self, section_name, key, TypeConverter.toI64);
-    }
-
-    /// Get section value as f32
-    pub fn getSectionF32(self: *const Ini, section_name: []const u8, key: []const u8) !f32 {
-        return getSectionTypedValue(f32, self, section_name, key, TypeConverter.toF32);
-    }
-
-    /// Get section value as f64
-    pub fn getSectionF64(self: *const Ini, section_name: []const u8, key: []const u8) !f64 {
-        return getSectionTypedValue(f64, self, section_name, key, TypeConverter.toF64);
-    }
-
-    /// Get section value as integer (generic)
-    pub fn getSectionInt(self: *const Ini, section_name: []const u8, key: []const u8) !i64 {
-        return self.getSectionI64(section_name, key);
-    }
-
-    /// Get section value as float (generic)
-    pub fn getSectionFloat(self: *const Ini, section_name: []const u8, key: []const u8) !f64 {
-        return self.getSectionF64(section_name, key);
-    }
-
-    /// Set a global value
-
-    /// Set a global value
+    /// Set a value (supports <section>.<key> syntax)
     pub fn set(self: *Ini, key: []const u8, value: []const u8) Allocator.Error!void {
-        if (self.global_entries.get(key)) |_| {
-            // Remove old entry and add new one
-            const old_entry = self.global_entries.fetchRemove(key).?;
-            // Manually free the entry's memory
-            self.allocator.free(old_entry.value.value);
-            self.allocator.free(old_entry.value.key);
-            self.allocator.free(old_entry.key);
+        switch (parseKey(key)) {
+            .section_key => |parsed| {
+                // Get or create section Ini
+                const section_ini = try self.getOrCreateSectionInternal(parsed.section);
+                // Recursively call set on the nested Ini
+                try section_ini.set(parsed.key, value);
+            },
+            .global => |global_key| {
+                // Set in global schemas
+                if (self.schemas.get(global_key)) |_| {
+                    // Remove old schema and add new one
+                    const old_schema = self.schemas.fetchRemove(global_key).?;
+                    // Free old schema's resources (not the key, it's the same as HashMap key)
+                    self.allocator.free(old_schema.value.value);
+                    if (old_schema.value.title) |title| self.allocator.free(title);
+                    if (old_schema.value.description) |desc| self.allocator.free(desc);
+                    self.allocator.free(old_schema.key);
+                }
+
+                // Add new schema - key ownership transferred to HashMap later
+                const value_copy = try self.allocator.dupe(u8, value);
+
+                const new_schema = Schema{
+                    .key = undefined, // Will be set to HashMap key after put
+                    .value = value_copy,
+                    .datatype = DataType.infer(value),
+                    .title = null,
+                    .description = null,
+                };
+
+                // Put in HashMap - this creates the key copy
+                const key_copy = try self.allocator.dupe(u8, global_key);
+                try self.schemas.put(key_copy, new_schema);
+
+                // Set the schema's key pointer to point to HashMap's key
+                const stored_schema = self.schemas.getPtr(key_copy).?;
+                stored_schema.key = key_copy;
+            },
         }
-
-        // Add new entry
-        const new_entry = try Entry.init(self.allocator, key, value);
-        try self.global_entries.put(try self.allocator.dupe(u8, key), new_entry);
     }
 
-    /// Set a value in a section
-    pub fn setSection(self: *Ini, section_name: []const u8, key: []const u8, value: []const u8) Allocator.Error!void {
-        const section = try self.getOrCreateSection(section_name);
-        try section.set(self.allocator, key, value);
+    /// Check if a key or section exists
+    /// Supports:
+    /// - <section>.<key> syntax: Check if key exists in section
+    /// - <section> syntax: Check if section exists (no dot in name)
+    /// - <key> syntax: Check if global key exists (if not a section name)
+    pub fn has(self: *const Ini, key_or_section: []const u8) bool {
+        switch (parseKey(key_or_section)) {
+            .section_key => |parsed| {
+                // Check in section
+                if (self.sections.get(parsed.section)) |section| {
+                    return section.get(parsed.key) != null;
+                }
+                return false;
+            },
+            .global => |global_key| {
+                // No dot found: could be a section name or a global key
+                // First check if it's a section
+                if (self.sections.get(global_key) != null) {
+                    return true; // Section exists
+                }
+
+                // Otherwise, check if it's a global key
+                return self.schemas.contains(global_key);
+            },
+        }
     }
 
-    /// Get or create a section
-    pub fn getOrCreateSection(self: *Ini, section_name: []const u8) Allocator.Error!*Section {
+    /// Remove a key or section
+    /// Supports:
+    /// - <section>.<key> syntax: Remove key from section
+    /// - <section> syntax: Remove entire section and all its keys (no dot in name)
+    /// - <key> syntax: Remove global key (if not a section name)
+    /// Returns: true if removed, false if not found
+    pub fn remove(self: *Ini, key_or_section: []const u8) bool {
+        switch (parseKey(key_or_section)) {
+            .section_key => |parsed| {
+                // Remove from section
+                if (self.sections.getPtr(parsed.section)) |section| {
+                    return section.remove(parsed.key);
+                }
+                return false;
+            },
+            .global => |global_key| {
+                // No dot found: could be a section name or a global key
+                // First try to remove as a section
+                if (self.sections.fetchRemove(global_key)) |kv| {
+                    // Section found, deinit it (safe to use constCast here as we're removing it)
+                    @constCast(&kv.value).deinit();
+                    self.allocator.free(kv.key);
+                    return true; // Section removed
+                }
+
+                // Otherwise, try to remove as a global key
+                if (self.schemas.fetchRemove(global_key)) |kv| {
+                    // Free schema resources (kv.value is const)
+                    // Use deinitWithoutKey since key is owned by HashMap
+                    @constCast(&kv.value).deinitWithoutKey(self.allocator);
+                    // Free the key stored in the hash map (also frees Schema.key since they share allocation)
+                    self.allocator.free(kv.key);
+                    return true; // Global key removed
+                }
+
+                return false; // Not found
+            },
+        }
+    }
+
+    /// Add a complete Schema object (supports <section>.<key> syntax)
+    /// Unlike set(key, value) which accepts a string value and infers type,
+    /// add accepts a pre-configured Schema object (with explicit type and documentation)
+    ///
+    /// This method performs a deep copy of the Schema object.
+    /// The caller is still responsible for deinitializing the original Schema.
+    pub fn add(self: *Ini, key: []const u8, schema: Schema) Allocator.Error!void {
+        switch (parseKey(key)) {
+            .section_key => |parsed| {
+                // Get or create section
+                const section = try self.getOrCreateSectionInternal(parsed.section);
+
+                // Remove old schema if exists
+                if (section.schemas.fetchRemove(parsed.key)) |kv| {
+                    const old_schema = kv.value;
+                    // Call deinit to free old schema's resources (except key, owned by HashMap)
+                    @constCast(&old_schema).deinitWithoutKey(self.allocator);
+                    self.allocator.free(kv.key);
+                }
+
+                // Create new schema - key ownership transferred to HashMap later
+                const value_copy = try self.allocator.dupe(u8, schema.value);
+
+                const new_schema = Schema{
+                    .key = undefined, // Will be set to HashMap key after put
+                    .value = value_copy,
+                    .datatype = schema.datatype,
+                    .title = if (schema.title) |title| try self.allocator.dupe(u8, title) else null,
+                    .description = if (schema.description) |desc| try self.allocator.dupe(u8, desc) else null,
+                };
+
+                // Put in HashMap - this creates the key copy
+                const key_copy = try self.allocator.dupe(u8, parsed.key);
+                try section.schemas.put(key_copy, new_schema);
+
+                // Set the schema's key pointer to point to HashMap's key
+                // (they now share the same allocation)
+                const stored_schema = section.schemas.getPtr(key_copy).?;
+                stored_schema.key = key_copy;
+            },
+            .global => |global_key| {
+                // Remove old schema if exists
+                if (self.schemas.fetchRemove(global_key)) |kv| {
+                    const old_schema = kv.value;
+                    // Call deinit to free old schema's resources (except key, owned by HashMap)
+                    @constCast(&old_schema).deinitWithoutKey(self.allocator);
+                    self.allocator.free(kv.key);
+                }
+
+                // Create new schema - key ownership transferred to HashMap later
+                const value_copy = try self.allocator.dupe(u8, schema.value);
+
+                const new_schema = Schema{
+                    .key = undefined, // Will be set to HashMap key after put
+                    .value = value_copy,
+                    .datatype = schema.datatype,
+                    .title = if (schema.title) |title| try self.allocator.dupe(u8, title) else null,
+                    .description = if (schema.description) |desc| try self.allocator.dupe(u8, desc) else null,
+                };
+
+                // Put in HashMap - this creates the key copy
+                const key_copy = try self.allocator.dupe(u8, global_key);
+                try self.schemas.put(key_copy, new_schema);
+
+                // Set the schema's key pointer to point to HashMap's key
+                // (they now share the same allocation)
+                const stored_schema = self.schemas.getPtr(key_copy).?;
+                stored_schema.key = key_copy;
+            },
+        }
+    }
+
+    /// Internal helper: Get or create a section (as nested Ini)
+    fn getOrCreateSectionInternal(self: *Ini, section_name: []const u8) Allocator.Error!*Ini {
         if (self.sections.getPtr(section_name)) |section| {
             return section;
         }
-        const new_section = try Section.init(self.allocator, section_name);
-        try self.sections.put(try self.allocator.dupe(u8, section_name), new_section);
+
+        // Create new section Ini (without nested sections)
+        const name_copy = try self.allocator.dupe(u8, section_name);
+        errdefer self.allocator.free(name_copy);
+
+        const new_section = Ini{
+            .allocator = self.allocator,
+            .schemas = StringHashMap(Schema).init(self.allocator),
+            .sections = StringHashMap(Ini).init(self.allocator),
+        };
+
+        try self.sections.put(name_copy, new_section);
         return self.sections.getPtr(section_name).?;
     }
 
-    /// Check if a section exists
-    pub fn hasSection(self: *const Ini, section_name: []const u8) bool {
-        return self.sections.get(section_name) != null;
-    }
-
-    /// Remove a section
-    pub fn removeSection(self: *Ini, section_name: []const u8) bool {
-        if (self.sections.fetchRemove(section_name)) |kv| {
-            kv.value.deinit(self.allocator);
-            self.allocator.free(kv.key);
-            return true;
+    /// 遍历所有 schema（全局 + 所有 sections）
+    /// context: 用户提供的上下文指针（支持计数器等外部变量修改）
+    /// callback: 回调函数，接收 context 指针、section (null 表示全局) 和 schema 指针
+    pub fn forEach(self: *const Ini, context_ptr: anytype, comptime callback: anytype) void {
+        // 1. 遍历全局 schemas
+        var schema_iter = self.schemas.iterator();
+        while (schema_iter.next()) |entry| {
+            callback(context_ptr, null, entry.value_ptr);
         }
-        return false;
+
+        // 2. 遍历所有 sections
+        var section_iter = self.sections.iterator();
+        while (section_iter.next()) |section_entry| {
+            const section_name = section_entry.key_ptr.*;
+            var section_schema_iter = section_entry.value_ptr.schemas.iterator();
+            while (section_schema_iter.next()) |schema_entry| {
+                callback(context_ptr, section_name, schema_entry.value_ptr);
+            }
+        }
     }
 };
 
@@ -966,7 +759,7 @@ const Parser = struct {
     content: []const u8,
     pos: usize,
     ini: *Ini,
-    current_section: ?*Section = null,
+    current_section: ?*Ini = null,
     current_section_name: []const u8 = "", // 当前section的名称
     pending_comments: std.ArrayList([]const u8), // 累积的注释行
 
@@ -1016,10 +809,8 @@ const Parser = struct {
         const section_name = self.content[start..self.pos];
         self.pos += 1; // Skip ']'
 
-        const new_section = try Section.init(self.allocator, section_name);
-        try self.ini.sections.put(try self.allocator.dupe(u8, section_name), new_section);
-
-        self.current_section = self.ini.sections.getPtr(section_name).?;
+        // Use the helper method to get or create section Ini
+        self.current_section = try self.ini.getOrCreateSectionInternal(section_name);
         self.current_section_name = section_name;
     }
 
@@ -1033,27 +824,12 @@ const Parser = struct {
             return Error.InvalidFormat;
         }
 
-        var key_full = trim(self.content[key_start..self.pos]);
+        var key_full = trimAll(self.content[key_start..self.pos]);
         self.pos += 1; // Skip '='
 
         // Skip whitespace after =
         while (self.pos < self.content.len and self.content[self.pos] == ' ') {
             self.pos += 1;
-        }
-
-        const value_start = self.pos;
-        while (self.pos < self.content.len and self.content[self.pos] != '\n') {
-            self.pos += 1;
-        }
-
-        // 使用新函数提取值并跳过行尾注释
-        var value = extractValueWithoutComment(self.content[value_start..self.pos]);
-
-        // Handle quoted strings
-        if (value.len >= 2 and (value[0] == '"' or value[0] == '\'')) {
-            const quote = value[0];
-            if (value[value.len - 1] != quote) return Error.UnclosedQuote;
-            value = value[1 .. value.len - 1];
         }
 
         // Parse key and optional type annotation: key:type = value
@@ -1062,11 +838,11 @@ const Parser = struct {
 
         if (std.mem.indexOfScalar(u8, key_full, ':')) |colon_pos| {
             const key_part = key_full[0..colon_pos];
-            const type_part = trim(key_full[colon_pos + 1 ..]);
+            const type_part = trimAll(key_full[colon_pos + 1 ..]);
 
             // 检查是否是有效的类型标识符
             if (DataType.parse(type_part)) |datatype| {
-                actual_key = trim(key_part);
+                actual_key = trimAll(key_part);
                 explicit_datatype = datatype;
             } else {
                 // 如果不是有效类型，保持原样
@@ -1074,24 +850,216 @@ const Parser = struct {
             }
         }
 
-        // Create entry with explicit or inferred type
-        var entry = if (explicit_datatype) |datatype|
-            try Entry.initWithType(self.allocator, actual_key, value, datatype)
+        // 检查当前位置是否以 ``` 开头（多行字符串开始）
+        // 先跳过空格检测
+        var temp_pos = self.pos;
+        while (temp_pos < self.content.len and
+               (self.content[temp_pos] == ' ' or self.content[temp_pos] == '\t')) {
+            temp_pos += 1;
+        }
+
+        const is_multiline = (temp_pos + 3 <= self.content.len and
+            self.content[temp_pos] == '`' and
+            self.content[temp_pos + 1] == '`' and
+            self.content[temp_pos + 2] == '`');
+
+        var value: []const u8 = undefined;
+
+        if (is_multiline) {
+            // 类型约束检查：非 string 类型忽略多行语法
+            if (explicit_datatype == null or explicit_datatype.? == .string) {
+                // 解析多行字符串（返回原始内容 slice）
+                const multiline_content = self.parseMultilineValue();
+                // 对 trimAll 后的内容进行内存分配
+                const trimmed_multiline = trimAll(multiline_content);
+                value = trimmed_multiline;
+            } else {
+                // 非字符串类型，按单行处理
+                // 先跳过 ``` 标记
+                while (self.pos < self.content.len and
+                       (self.content[self.pos] == ' ' or self.content[self.pos] == '\t')) {
+                    self.pos += 1;
+                }
+                self.pos += 3; // 跳过 ```
+
+                // 读取单行值
+                const single_value = self.parseSingleLineValue();
+                value = single_value;
+
+                // 处理引号
+                if (value.len >= 2 and (value[0] == '"' or value[0] == '\'')) {
+                    const quote = value[0];
+                    if (value[value.len - 1] != quote) return Error.UnclosedQuote;
+                    value = value[1 .. value.len - 1];
+                }
+            }
+        } else {
+            // 不是多行字符串，读取单行值
+            value = self.parseSingleLineValue();
+
+            // 处理引号
+            if (value.len >= 2 and (value[0] == '"' or value[0] == '\'')) {
+                const quote = value[0];
+                if (value[value.len - 1] != quote) return Error.UnclosedQuote;
+                value = value[1 .. value.len - 1];
+            }
+        }
+
+        // Create schema with explicit or inferred type (without key - key will be set later)
+        const value_copy = try self.allocator.dupe(u8, value);
+
+        var schema = if (explicit_datatype) |datatype|
+            Schema{
+                .key = undefined, // Will be set after put
+                .value = value_copy,
+                .datatype = datatype,
+                .title = null,
+                .description = null,
+            }
         else
-            try Entry.init(self.allocator, actual_key, value);
+            Schema{
+                .key = undefined, // Will be set after put
+                .value = value_copy,
+                .datatype = DataType.infer(value),
+                .title = null,
+                .description = null,
+            };
 
         // 设置文档注释（包含 title 和 description）
-        try self.setEntryDocumentation(&entry);
+        try self.setSchemaDocumentation(&schema);
 
         if (self.current_section) |section| {
-            try section.entries.put(try self.allocator.dupe(u8, actual_key), entry);
+            // Put in HashMap - this creates the key copy
+            const key_copy = try self.allocator.dupe(u8, actual_key);
+            try section.schemas.put(key_copy, schema);
+
+            // Set the schema's key pointer to point to HashMap's key
+            const stored_schema = section.schemas.getPtr(key_copy).?;
+            stored_schema.key = key_copy;
         } else {
-            try self.ini.global_entries.put(try self.allocator.dupe(u8, actual_key), entry);
+            // Put in HashMap - this creates the key copy
+            const key_copy = try self.allocator.dupe(u8, actual_key);
+            try self.ini.schemas.put(key_copy, schema);
+
+            // Set the schema's key pointer to point to HashMap's key
+            const stored_schema = self.ini.schemas.getPtr(key_copy).?;
+            stored_schema.key = key_copy;
         }
 
         if (self.pos < self.content.len and self.content[self.pos] == '\n') {
             self.pos += 1;
         }
+    }
+
+    /// 解析单行值（遇到换行符停止）
+    fn parseSingleLineValue(self: *Parser) []const u8 {
+        const value_start = self.pos;
+        while (self.pos < self.content.len and self.content[self.pos] != '\n') {
+            self.pos += 1;
+        }
+        return extractValueWithoutComment(self.content[value_start..self.pos]);
+    }
+
+    /// 检查是否遇到新的配置项（用于多行字符串容错）
+    /// 不包括注释（# 或 ;），因为它们应该是多行字符串内容的一部分
+    fn isNewConfigItem(self: *const Parser) bool {
+        // 跳过当前行的空白
+        var temp_pos = self.pos;
+        while (temp_pos < self.content.len and
+               (self.content[temp_pos] == ' ' or
+                self.content[temp_pos] == '\t')) {
+            temp_pos += 1;
+        }
+
+        // 检查是否在新行开头
+        if (temp_pos >= self.content.len or self.content[temp_pos] != '\n') {
+            return false;
+        }
+
+        // 跳过换行符和空白
+        temp_pos += 1;
+        while (temp_pos < self.content.len and
+               (self.content[temp_pos] == ' ' or
+                self.content[temp_pos] == '\t' or
+                self.content[temp_pos] == '\r' or
+                self.content[temp_pos] == '\n')) {
+            temp_pos += 1;
+        }
+
+        if (temp_pos >= self.content.len) return true; // 文件尾
+
+        // 检查是否是配置项开始
+        const c = self.content[temp_pos];
+        // 注释（# 或 ;）不应该结束多行字符串
+        if (c == '#' or c == ';') return false;
+        // Section 开始
+        if (c == '[') return true;
+        // 多行字符串结束标识 ``` 不应该结束多行字符串
+        if (c == '`' and temp_pos + 2 <= self.content.len and
+            self.content[temp_pos + 1] == '`' and
+            self.content[temp_pos + 2] == '`') return false;
+
+        // 检查是否是键值对格式（key=value）
+        // 向前查找是否包含 '=' 符号
+        var has_equals = false;
+        var search_pos = temp_pos;
+        while (search_pos < self.content.len and self.content[search_pos] != '\n') {
+            if (self.content[search_pos] == '=') {
+                has_equals = true;
+                break;
+            }
+            search_pos += 1;
+        }
+
+        // 只有当这一行包含 '=' 时，才是新配置项
+        return has_equals;
+    }
+
+    /// 解析多行字符串值（返回原始内容 slice，不分配内存）
+    fn parseMultilineValue(self: *Parser) []const u8 {
+        // 跳过 = 后的空白字符和开始的 ```
+        // 跳过空白
+        while (self.pos < self.content.len and
+               (self.content[self.pos] == ' ' or
+                self.content[self.pos] == '\t')) {
+            self.pos += 1;
+        }
+        // 跳过开始的 ```
+        self.pos += 3;
+
+        // 记录内容开始位置
+        const content_start = self.pos;
+
+        // 收集多行内容（保持所有内容，包括空行、换行符等）
+        while (self.pos < self.content.len) {
+            // 检查是否遇到结束的 ```
+            if (self.pos + 2 <= self.content.len and
+                self.content[self.pos] == '`' and
+                self.content[self.pos + 1] == '`' and
+                self.content[self.pos + 2] == '`') {
+
+                // 找到结束标识，返回原始内容
+                const content = self.content[content_start..self.pos];
+                self.pos += 3; // 跳过结束的 ```
+                return content;
+            }
+
+            // 检查是否遇到新配置项（容错处理）
+            // 只有在新行开头时才检查，避免在内容中间误判
+            if (self.pos > 0 and self.content[self.pos - 1] == '\n') {
+                if (self.isNewConfigItem()) {
+                    // 新配置项代表多行字符串结束
+                    const content = self.content[content_start..self.pos];
+                    return content;
+                }
+            }
+
+            self.pos += 1;
+        }
+
+        // 到达文件尾（容错处理）
+        const content = self.content[content_start..self.pos];
+        return content;
     }
 
     /// 累积注释行到 pending_comments
@@ -1163,63 +1131,61 @@ const Parser = struct {
         return result[0 .. offset - 1]; // 移除最后的换行符
     }
 
-    /// 设置 entry 的文档字段（从累积的注释中提取 title、description 和 doc）
-    fn setEntryDocumentation(self: *Parser, entry: *Entry) !void {
+    /// 设置 schema 的文档字段（从累积的注释中提取 title 和 description）
+    fn setSchemaDocumentation(self: *Parser, schema: *Schema) !void {
         if (self.pending_comments.items.len == 0) {
             return;
         }
 
-        var doc_comments = std.ArrayList([]const u8).empty;
-        defer {
-            for (doc_comments.items) |comment| {
-                self.allocator.free(comment);
-            }
-            doc_comments.deinit(self.allocator);
-        }
+        // 第一遍遍历：处理title并计算description所需的总大小
+        var title_value: ?[]const u8 = null;
+        var desc_count: usize = 0;
+        var total_desc_size: usize = 0;
 
-        // 遍历注释行，提取 title 和 description
         for (self.pending_comments.items) |comment| {
             if (std.mem.startsWith(u8, comment, "@title")) {
-                const title_value = trimAll(comment["@title".len..]);
-                if (title_value.len > 0) {
-                    entry.title = try self.allocator.dupe(u8, title_value);
-                }
-            } else if (std.mem.startsWith(u8, comment, "@description")) {
-                const desc_value = trimAll(comment["@description".len..]);
-                if (desc_value.len > 0) {
-                    entry.description = try self.allocator.dupe(u8, desc_value);
+                // 提取title值
+                const title = trimAll(comment["@title".len..]);
+                if (title.len > 0) {
+                    title_value = title;
                 }
             } else {
-                // 普通注释行
-                try doc_comments.append(self.allocator, try self.allocator.dupe(u8, comment));
+                // 计算description大小（包括换行符）
+                total_desc_size += comment.len + 1;
+                desc_count += 1;
             }
         }
 
-        // 合并剩余的普通注释为 doc
-        if (doc_comments.items.len > 0) {
-            // 计算实际需要的总大小（注释内容 + 换行符）
-            // 最后一个注释后面不需要换行符
-            var total_size: usize = 0;
-            for (doc_comments.items) |comment| {
-                total_size += comment.len;
-                total_size += 1; // 换行符
-            }
-            total_size -= 1; // 移除最后一个换行符
+        // 设置title
+        if (title_value) |title| {
+            schema.title = try self.allocator.dupe(u8, title);
+        }
 
-            const result = try self.allocator.alloc(u8, total_size);
+        // 设置description（单次分配）
+        if (desc_count > 0) {
+            // 调整大小（移除最后一个换行符）
+            if (total_desc_size > 0) total_desc_size -= 1;
+
+            const desc_buf = try self.allocator.alloc(u8, total_desc_size);
             var offset: usize = 0;
+            var current_desc: usize = 0;
 
-            for (doc_comments.items, 0..) |comment, i| {
-                @memcpy(result[offset..][0..comment.len], comment);
-                offset += comment.len;
-                // 不是最后一个注释时添加换行符
-                if (i < doc_comments.items.len - 1) {
-                    result[offset] = '\n';
-                    offset += 1;
+            // 第二遍遍历：拷贝description内容
+            for (self.pending_comments.items) |comment| {
+                if (!std.mem.startsWith(u8, comment, "@title")) {
+                    @memcpy(desc_buf[offset..][0..comment.len], comment);
+                    offset += comment.len;
+
+                    // 添加换行符（除了最后一个）
+                    if (current_desc < desc_count - 1) {
+                        desc_buf[offset] = '\n';
+                        offset += 1;
+                    }
+                    current_desc += 1;
                 }
             }
 
-            entry.doc = result;
+            schema.description = desc_buf[0..offset];
         }
 
         // 清空累积的注释并释放内存
@@ -1244,42 +1210,23 @@ const Parser = struct {
         }
     }
 
-    fn trim(s: []const u8) []const u8 {
-        var start: usize = 0;
-        var end: usize = s.len;
-
-        while (start < end and (s[start] == ' ' or s[start] == '\t' or s[start] == '\r')) {
-            start += 1;
-        }
-
-        while (end > start and (s[end - 1] == ' ' or s[end - 1] == '\t' or s[end - 1] == '\r')) {
-            end -= 1;
-        }
-
-        return s[start..end];
+    fn trimAll(s: []const u8) []const u8 {
+        // 使用标准库的trim函数，功能相同但更高效且经过充分测试
+        return std.mem.trim(u8, s, " \t\r\n");
     }
 
-    /// 删除字符串的前后空格（包括 \n, \r, \t, 空格）
-    fn trimAll(s: []const u8) []const u8 {
+    fn trimLeft(s: []const u8) []const u8 {
+        // 去除字符串左侧的空白字符
         var start: usize = 0;
-        var end: usize = s.len;
-
-        // 删除前导空白字符
-        while (start < end and (s[start] == ' ' or s[start] == '\t' or s[start] == '\r' or s[start] == '\n')) {
+        while (start < s.len and (s[start] == ' ' or s[start] == '\t' or s[start] == '\r')) {
             start += 1;
         }
-
-        // 删除尾随空白字符
-        while (end > start and (s[end - 1] == ' ' or s[end - 1] == '\t' or s[end - 1] == '\r' or s[end - 1] == '\n')) {
-            end -= 1;
-        }
-
-        return s[start..end];
+        return s[start..];
     }
 
     /// 提取值（不再支持行尾注释）
     fn extractValueWithoutComment(s: []const u8) []const u8 {
-        return trim(s);
+        return trimAll(s);
     }
 };
 
@@ -1307,10 +1254,10 @@ test "basic ini parsing" {
     // Test global key
     try std.testing.expectEqualStrings("global_value", ini.get("global_key").?);
 
-    // Test section keys
-    try std.testing.expectEqualStrings("value1", ini.getSection("section1", "key1").?);
-    try std.testing.expectEqualStrings("quoted value", ini.getSection("section1", "key2").?);
-    try std.testing.expectEqualStrings("value3", ini.getSection("section2", "key3").?);
+    // Test section keys using section.key syntax
+    try std.testing.expectEqualStrings("value1", ini.get("section1.key1").?);
+    try std.testing.expectEqualStrings("quoted value", ini.get("section1.key2").?);
+    try std.testing.expectEqualStrings("value3", ini.get("section2.key3").?);
 }
 
 test "save and load" {
@@ -1319,8 +1266,8 @@ test "save and load" {
     defer ini.deinit();
 
     try ini.set("global", "value");
-    try ini.setSection("section1", "key1", "value1");
-    try ini.setSection("section1", "key2", "value2");
+    try ini.set("section1.key1", "value1");
+    try ini.set("section1.key2", "value2");
 
     const string = try ini.saveToString(allocator);
     defer allocator.free(string);
@@ -1330,6 +1277,141 @@ test "save and load" {
     try ini2.loadFromString(string);
 
     try std.testing.expectEqualStrings("value", ini2.get("global").?);
-    try std.testing.expectEqualStrings("value1", ini2.getSection("section1", "key1").?);
-    try std.testing.expectEqualStrings("value2", ini2.getSection("section1", "key2").?);
+    try std.testing.expectEqualStrings("value1", ini2.get("section1.key1").?);
+    try std.testing.expectEqualStrings("value2", ini2.get("section1.key2").?);
+}
+
+test "has() method" {
+    const allocator = std.testing.allocator;
+    var ini = Ini.init(allocator);
+    defer ini.deinit();
+
+    try ini.set("global", "value");
+    try ini.set("section1.key1", "value1");
+    try ini.set("section1.key2", "value2");
+
+    // Test global keys
+    try std.testing.expect(ini.has("global"));
+    try std.testing.expect(!ini.has("nonexistent"));
+
+    // Test section keys
+    try std.testing.expect(ini.has("section1.key1"));
+    try std.testing.expect(ini.has("section1.key2"));
+    try std.testing.expect(!ini.has("section1.nonexistent"));
+
+    // Test nonexistent section
+    try std.testing.expect(!ini.has("section2.key1"));
+}
+
+test "remove() method" {
+    const allocator = std.testing.allocator;
+    var ini = Ini.init(allocator);
+    defer ini.deinit();
+
+    try ini.set("global", "value");
+    try ini.set("section1.key1", "value1");
+    try ini.set("section1.key2", "value2");
+
+    // Test removing global keys
+    try std.testing.expect(ini.remove("global"));
+    try std.testing.expect(!ini.has("global"));
+    try std.testing.expect(!ini.remove("nonexistent"));
+
+    // Test removing section keys
+    try std.testing.expect(ini.remove("section1.key1"));
+    try std.testing.expect(!ini.has("section1.key1"));
+    try std.testing.expect(ini.has("section1.key2"));
+
+    // Test removing nonexistent key
+    try std.testing.expect(!ini.remove("section1.nonexistent"));
+}
+
+test "add() method with Schema" {
+    const allocator = std.testing.allocator;
+    var ini = Ini.init(allocator);
+    defer ini.deinit();
+
+    // Create Schemas with explicit types
+    var schema = try Schema.initWithType(allocator, "test", "42", DataType.i64);
+    defer schema.deinit(allocator);
+
+    // Add to global (deep copy is made)
+    try ini.add("count", schema);
+    try std.testing.expect(ini.has("count"));
+    try std.testing.expectEqual(@as(i64, 42), ini.getInt("count") catch unreachable);
+
+    // Add to section
+    var schema2 = try Schema.initWithType(allocator, "flag", "true", DataType.bool);
+    defer schema2.deinit(allocator);
+
+    try ini.add("settings.enabled", schema2);
+    try std.testing.expect(ini.has("settings.enabled"));
+    try std.testing.expectEqual(true, ini.getBool("settings.enabled") catch unreachable);
+
+    // Test replacing existing key
+    var schema3 = try Schema.initWithType(allocator, "test", "100", DataType.i64);
+    defer schema3.deinit(allocator);
+
+    try ini.add("count", schema3);
+    try std.testing.expectEqual(@as(i64, 100), ini.getInt("count") catch unreachable);
+}
+
+test "has() method with section support" {
+    const allocator = std.testing.allocator;
+    var ini = Ini.init(allocator);
+    defer ini.deinit();
+
+    try ini.set("global", "value");
+    try ini.set("section1.key1", "value1");
+    try ini.set("section2.key2", "value2");
+
+    // Test global keys
+    try std.testing.expect(ini.has("global"));
+    try std.testing.expect(!ini.has("nonexistent"));
+
+    // Test section keys with <section>.<key> syntax
+    try std.testing.expect(ini.has("section1.key1"));
+    try std.testing.expect(ini.has("section2.key2"));
+    try std.testing.expect(!ini.has("section1.nonexistent"));
+
+    // Test sections with <section> syntax
+    try std.testing.expect(ini.has("section1"));
+    try std.testing.expect(ini.has("section2"));
+    try std.testing.expect(!ini.has("section3"));
+
+    // Test that has() prefers sections over global keys with same name
+    // (if both exist, section takes precedence)
+    try ini.set("section3", "global_value");
+    try std.testing.expect(ini.has("section3")); // Section exists
+}
+
+test "remove() method with section support" {
+    const allocator = std.testing.allocator;
+    var ini = Ini.init(allocator);
+    defer ini.deinit();
+
+    try ini.set("global", "value");
+    try ini.set("section1.key1", "value1");
+    try ini.set("section1.key2", "value2");
+    try ini.set("section2.key3", "value3");
+
+    // Test removing global keys
+    try std.testing.expect(ini.remove("global"));
+    try std.testing.expect(!ini.has("global"));
+    try std.testing.expect(!ini.remove("nonexistent"));
+
+    // Test removing section keys with <section>.<key> syntax
+    try std.testing.expect(ini.remove("section1.key1"));
+    try std.testing.expect(!ini.has("section1.key1"));
+    try std.testing.expect(ini.has("section1.key2"));
+
+    // Test removing sections with <section> syntax
+    try std.testing.expect(ini.remove("section2"));
+    try std.testing.expect(!ini.has("section2"));
+    try std.testing.expect(!ini.has("section2.key3"));
+
+    // Test that remove() prefers sections over global keys
+    try ini.set("section3", "global_value");
+    try std.testing.expect(ini.remove("section3")); // Removes section
+    try std.testing.expect(!ini.has("section3"));
 }

@@ -167,77 +167,7 @@ export fn zini_get_bool(parser: ?*zini_t, key: [*c]const u8, out: ?*bool) zini_e
     return .SUCCESS;
 }
 
-/// Get a section string value
-export fn zini_get_section(parser: ?*zini_t, section: [*c]const u8, key: [*c]const u8) [*c]const u8 {
-    if (parser == null or section == null or key == null) return null;
-    const ini_ptr: *Ini = @ptrCast(@alignCast(parser.?));
-    const section_slice = std.mem.span(section);
-    const key_slice = std.mem.span(key);
-    const value = ini_ptr.getSection(section_slice, key_slice) orelse return null;
-    return value.ptr;
-}
-
-/// Get a section integer value
-export fn zini_get_section_int(parser: ?*zini_t, section: [*c]const u8, key: [*c]const u8, out: ?*i64) zini_error_t {
-    if (parser == null or section == null or key == null or out == null) return .INVALID_FORMAT;
-    const ini_ptr: *Ini = @ptrCast(@alignCast(parser.?));
-    const section_slice = std.mem.span(section);
-    const key_slice = std.mem.span(key);
-    out.?.* = ini_ptr.getSectionInt(section_slice, key_slice) catch |err| return errorToCode(err);
-    return .SUCCESS;
-}
-
-/// Get a section u8 value
-export fn zini_get_section_u8(parser: ?*zini_t, section: [*c]const u8, key: [*c]const u8, out: ?*u8) zini_error_t {
-    if (parser == null or section == null or key == null or out == null) return .INVALID_FORMAT;
-    const ini_ptr: *Ini = @ptrCast(@alignCast(parser.?));
-    const section_slice = std.mem.span(section);
-    const key_slice = std.mem.span(key);
-    out.?.* = ini_ptr.getSectionU8(section_slice, key_slice) catch |err| return errorToCode(err);
-    return .SUCCESS;
-}
-
-/// Get a section u16 value
-export fn zini_get_section_u16(parser: ?*zini_t, section: [*c]const u8, key: [*c]const u8, out: ?*u16) zini_error_t {
-    if (parser == null or section == null or key == null or out == null) return .INVALID_FORMAT;
-    const ini_ptr: *Ini = @ptrCast(@alignCast(parser.?));
-    const section_slice = std.mem.span(section);
-    const key_slice = std.mem.span(key);
-    out.?.* = ini_ptr.getSectionU16(section_slice, key_slice) catch |err| return errorToCode(err);
-    return .SUCCESS;
-}
-
-/// Get a section u32 value
-export fn zini_get_section_u32(parser: ?*zini_t, section: [*c]const u8, key: [*c]const u8, out: ?*u32) zini_error_t {
-    if (parser == null or section == null or key == null or out == null) return .INVALID_FORMAT;
-    const ini_ptr: *Ini = @ptrCast(@alignCast(parser.?));
-    const section_slice = std.mem.span(section);
-    const key_slice = std.mem.span(key);
-    out.?.* = ini_ptr.getSectionU32(section_slice, key_slice) catch |err| return errorToCode(err);
-    return .SUCCESS;
-}
-
-/// Get a section u64 value
-export fn zini_get_section_u64(parser: ?*zini_t, section: [*c]const u8, key: [*c]const u8, out: ?*u64) zini_error_t {
-    if (parser == null or section == null or key == null or out == null) return .INVALID_FORMAT;
-    const ini_ptr: *Ini = @ptrCast(@alignCast(parser.?));
-    const section_slice = std.mem.span(section);
-    const key_slice = std.mem.span(key);
-    out.?.* = ini_ptr.getSectionU64(section_slice, key_slice) catch |err| return errorToCode(err);
-    return .SUCCESS;
-}
-
-/// Get a section boolean value
-export fn zini_get_section_bool(parser: ?*zini_t, section: [*c]const u8, key: [*c]const u8, out: ?*bool) zini_error_t {
-    if (parser == null or section == null or key == null or out == null) return .INVALID_FORMAT;
-    const ini_ptr: *Ini = @ptrCast(@alignCast(parser.?));
-    const section_slice = std.mem.span(section);
-    const key_slice = std.mem.span(key);
-    out.?.* = ini_ptr.getSectionBool(section_slice, key_slice) catch |err| return errorToCode(err);
-    return .SUCCESS;
-}
-
-/// Set a global value
+/// Set a value (supports <section>.<key> syntax)
 export fn zini_set(parser: ?*zini_t, key: [*c]const u8, value: [*c]const u8) zini_error_t {
     if (parser == null or key == null or value == null) return .INVALID_FORMAT;
     const ini_ptr: *Ini = @ptrCast(@alignCast(parser.?));
@@ -247,23 +177,21 @@ export fn zini_set(parser: ?*zini_t, key: [*c]const u8, value: [*c]const u8) zin
     return .SUCCESS;
 }
 
-/// Set a section value
-export fn zini_set_section(parser: ?*zini_t, section: [*c]const u8, key: [*c]const u8, value: [*c]const u8) zini_error_t {
-    if (parser == null or section == null or key == null or value == null) return .INVALID_FORMAT;
+/// Check if a key exists (supports <section>.<key> syntax)
+export fn zini_has(parser: ?*zini_t, key: [*c]const u8) bool {
+    if (parser == null or key == null) return false;
     const ini_ptr: *Ini = @ptrCast(@alignCast(parser.?));
-    const section_slice = std.mem.span(section);
     const key_slice = std.mem.span(key);
-    const value_slice = std.mem.span(value);
-    ini_ptr.setSection(section_slice, key_slice, value_slice) catch |err| return errorToCode(err);
-    return .SUCCESS;
+    return ini_ptr.has(key_slice);
 }
 
-/// Check if a section exists
-export fn zini_has_section(parser: ?*zini_t, section: [*c]const u8) bool {
-    if (parser == null or section == null) return false;
+/// Remove a key (supports <section>.<key> syntax)
+/// Returns: true if removed, false if key not found
+export fn zini_remove(parser: ?*zini_t, key: [*c]const u8) bool {
+    if (parser == null or key == null) return false;
     const ini_ptr: *Ini = @ptrCast(@alignCast(parser.?));
-    const section_slice = std.mem.span(section);
-    return ini_ptr.hasSection(section_slice);
+    const key_slice = std.mem.span(key);
+    return ini_ptr.remove(key_slice);
 }
 
 /// Get error message for error code

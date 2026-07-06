@@ -111,13 +111,13 @@ pub fn main() !void {
         try config.set("section1.key1", "value1");
         try config.set("section2.key2", "value2");
 
-        // 检查 section 是否存在
-        std.debug.print("section1 存在: {}\n", .{config.hasSection("section1")});
-        std.debug.print("section3 存在: {}\n", .{config.hasSection("section3")});
+        // 检查 section 是否存在（使用新的 has 方法）
+        std.debug.print("section1 存在: {}\n", .{config.has("section1")});
+        std.debug.print("section3 存在: {}\n", .{config.has("section3")});
 
-        // 删除 section
-        _ = config.removeSection("section1");
-        std.debug.print("删除后 section1 存在: {}\n", .{config.hasSection("section1")});
+        // 删除 section（使用新的 remove 方法）
+        _ = config.remove("section1");
+        std.debug.print("删除后 section1 存在: {}\n", .{config.has("section1")});
     }
 
     // 示例 5: 保存和加载文件

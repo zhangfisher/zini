@@ -1,10 +1,10 @@
 //! 文档注释功能测试
-//! 测试 @title、@description 和普通注释的解析与保存
+//! 测试 @title 和普通注释的解析与保存
 
 const std = @import("std");
 const Ini = @import("zini").Ini;
 
-test "parse @title annotation" {
+test "解析 @title 注解" {
     const allocator = std.testing.allocator;
     var config = Ini.init(allocator);
     defer config.deinit();
@@ -16,39 +16,17 @@ test "parse @title annotation" {
 
     try config.loadFromString(content);
 
-    const entry = config.getEntry("db_host");
-    try std.testing.expect(entry != null);
+    const schema = config.getSchema("db_host");
+    try std.testing.expect(schema != null);
 
-    const e = entry.?;
+    const e = schema.?;
     try std.testing.expect(e.title != null);
     try std.testing.expectEqualStrings("Database Host", e.title.?);
     try std.testing.expect(e.description == null);
-    try std.testing.expect(e.doc == null);
+    try std.testing.expect(e.description == null);
 }
 
-test "parse @description annotation" {
-    const allocator = std.testing.allocator;
-    var config = Ini.init(allocator);
-    defer config.deinit();
-
-    const content =
-        \\# @description The database server hostname or IP address
-        \\db_port = 3306
-    ;
-
-    try config.loadFromString(content);
-
-    const entry = config.getEntry("db_port");
-    try std.testing.expect(entry != null);
-
-    const e = entry.?;
-    try std.testing.expect(e.description != null);
-    try std.testing.expectEqualStrings("The database server hostname or IP address", e.description.?);
-    try std.testing.expect(e.title == null);
-    try std.testing.expect(e.doc == null);
-}
-
-test "parse regular comments to doc field" {
+test "解析普通注释到 description 字段" {
     const allocator = std.testing.allocator;
     var config = Ini.init(allocator);
     defer config.deinit();
@@ -61,17 +39,16 @@ test "parse regular comments to doc field" {
 
     try config.loadFromString(content);
 
-    const entry = config.getEntry("key");
-    try std.testing.expect(entry != null);
+    const schema = config.getSchema("key");
+    try std.testing.expect(schema != null);
 
-    const e = entry.?;
-    try std.testing.expect(e.doc != null);
-    try std.testing.expectEqualStrings("This is a regular comment\nSecond line of comment", e.doc.?);
+    const e = schema.?;
+    try std.testing.expect(e.description != null);
+    try std.testing.expectEqualStrings("This is a regular comment\nSecond line of comment", e.description.?);
     try std.testing.expect(e.title == null);
-    try std.testing.expect(e.description == null);
 }
 
-test "parse mixed annotations (@title, @description, and doc)" {
+test "解析混合注解（@title 和普通注释）" {
     const allocator = std.testing.allocator;
     var config = Ini.init(allocator);
     defer config.deinit();
@@ -79,22 +56,21 @@ test "parse mixed annotations (@title, @description, and doc)" {
     const content =
         \\# Regular documentation comment
         \\# @title Database Configuration
-        \\# @description Configuration settings for the database connection
+        \\# Another comment
         \\db_host = localhost
     ;
 
     try config.loadFromString(content);
 
-    const entry = config.getEntry("db_host");
-    try std.testing.expect(entry != null);
+    const schema = config.getSchema("db_host");
+    try std.testing.expect(schema != null);
 
-    const e = entry.?;
+    const e = schema.?;
     try std.testing.expectEqualStrings("Database Configuration", e.title.?);
-    try std.testing.expectEqualStrings("Configuration settings for the database connection", e.description.?);
-    try std.testing.expectEqualStrings("Regular documentation comment", e.doc.?);
+    try std.testing.expectEqualStrings("Regular documentation comment\nAnother comment", e.description.?);
 }
 
-test "parse annotations in section" {
+test "解析 section 中的注解" {
     const allocator = std.testing.allocator;
     var config = Ini.init(allocator);
     defer config.deinit();
@@ -102,7 +78,7 @@ test "parse annotations in section" {
     const content =
         \\[database]
         \\# @title Connection Timeout
-        \\# @description Timeout in seconds for database connection
+        \\# Timeout in seconds for database connection
         \\timeout = 30
     ;
 
@@ -111,15 +87,15 @@ test "parse annotations in section" {
     const section = config.sections.get("database");
     try std.testing.expect(section != null);
 
-    const entry = section.?.getEntry("timeout");
-    try std.testing.expect(entry != null);
+    const schema = section.?.getSchema("timeout");
+    try std.testing.expect(schema != null);
 
-    const e = entry.?;
+    const e = schema.?;
     try std.testing.expectEqualStrings("Connection Timeout", e.title.?);
     try std.testing.expectEqualStrings("Timeout in seconds for database connection", e.description.?);
 }
 
-test "parse multiple entries with different annotations" {
+test "解析多个不同注解的配置项" {
     const allocator = std.testing.allocator;
     var config = Ini.init(allocator);
     defer config.deinit();
@@ -129,7 +105,7 @@ test "parse multiple entries with different annotations" {
         \\host = example.com
         \\
         \\# @title Server Port
-        \\# @description The port number for the server
+        \\# The port number for the server
         \\port = 8080
         \\
         \\# Regular comment for timeout
@@ -138,29 +114,29 @@ test "parse multiple entries with different annotations" {
 
     try config.loadFromString(content);
 
-    const host_entry = config.getEntry("host");
-    try std.testing.expect(host_entry != null);
-    if (host_entry) |e| {
+    const host_schema = config.getSchema("host");
+    try std.testing.expect(host_schema != null);
+    if (host_schema) |e| {
         try std.testing.expectEqualStrings("Server Host", e.title.?);
         try std.testing.expect(e.description == null);
     }
 
-    const port_entry = config.getEntry("port");
-    try std.testing.expect(port_entry != null);
-    if (port_entry) |e| {
+    const port_schema = config.getSchema("port");
+    try std.testing.expect(port_schema != null);
+    if (port_schema) |e| {
         try std.testing.expectEqualStrings("Server Port", e.title.?);
         try std.testing.expectEqualStrings("The port number for the server", e.description.?);
     }
 
-    const timeout_entry = config.getEntry("timeout");
-    try std.testing.expect(timeout_entry != null);
-    if (timeout_entry) |e| {
-        try std.testing.expectEqualStrings("Regular comment for timeout", e.doc.?);
+    const timeout_schema = config.getSchema("timeout");
+    try std.testing.expect(timeout_schema != null);
+    if (timeout_schema) |e| {
+        try std.testing.expectEqualStrings("Regular comment for timeout", e.description.?);
         try std.testing.expect(e.title == null);
     }
 }
 
-test "parse entry with no annotations" {
+test "解析没有注解的配置项" {
     const allocator = std.testing.allocator;
     var config = Ini.init(allocator);
     defer config.deinit();
@@ -171,16 +147,16 @@ test "parse entry with no annotations" {
 
     try config.loadFromString(content);
 
-    const entry = config.getEntry("key");
-    try std.testing.expect(entry != null);
+    const schema = config.getSchema("key");
+    try std.testing.expect(schema != null);
 
-    const e = entry.?;
-    try std.testing.expect(e.doc == null);
+    const e = schema.?;
+    try std.testing.expect(e.description == null);
     try std.testing.expect(e.title == null);
     try std.testing.expect(e.description == null);
 }
 
-test "parse @title with empty value" {
+test "解析值为空的 @title" {
     const allocator = std.testing.allocator;
     var config = Ini.init(allocator);
     defer config.deinit();
@@ -192,35 +168,15 @@ test "parse @title with empty value" {
 
     try config.loadFromString(content);
 
-    const entry = config.getEntry("key");
-    try std.testing.expect(entry != null);
+    const schema = config.getSchema("key");
+    try std.testing.expect(schema != null);
 
-    const e = entry.?;
+    const e = schema.?;
     // 空的 @title 应该被忽略
     try std.testing.expect(e.title == null);
 }
 
-test "parse @description with empty value" {
-    const allocator = std.testing.allocator;
-    var config = Ini.init(allocator);
-    defer config.deinit();
-
-    const content =
-        \\# @description
-        \\key = value
-    ;
-
-    try config.loadFromString(content);
-
-    const entry = config.getEntry("key");
-    try std.testing.expect(entry != null);
-
-    const e = entry.?;
-    // 空的 @description 应该被忽略
-    try std.testing.expect(e.description == null);
-}
-
-test "save and load with @title annotation" {
+test "保存并加载带 @title 注解的配置" {
     const allocator = std.testing.allocator;
     var config = Ini.init(allocator);
     defer config.deinit();
@@ -241,46 +197,42 @@ test "save and load with @title annotation" {
     defer config2.deinit();
     try config2.loadFromString(saved);
 
-    const entry = config2.getEntry("db_host");
-    try std.testing.expect(entry != null);
+    const schema = config2.getSchema("db_host");
+    try std.testing.expect(schema != null);
 
-    const e = entry.?;
+    const e = schema.?;
     try std.testing.expectEqualStrings("Database Host", e.title.?);
 }
 
-test "save and load with @description annotation" {
-    // TODO: 暂时禁用此测试，存在内存崩溃问题需要调查
-    // error: Invalid free
-    if (false) {
-        const allocator = std.testing.allocator;
-        var config = Ini.init(allocator);
-        defer config.deinit();
+test "保存并加载保持注释格式" {
+    const allocator = std.testing.allocator;
+    var config = Ini.init(allocator);
+    defer config.deinit();
 
-        const content =
-            \\# @description The database server hostname
-            \\db_host = localhost
-        ;
+    const content =
+        \\# Regular comment
+        \\db_host = localhost
+    ;
 
-        try config.loadFromString(content);
+    try config.loadFromString(content);
 
-        // 保存到字符串
-        const saved = try config.saveToString(allocator);
-        defer allocator.free(saved);
+    // 保存到字符串
+    const saved = try config.saveToString(allocator);
+    defer allocator.free(saved);
 
-        // 重新加载
-        var config2 = Ini.init(allocator);
-        defer config2.deinit();
-        try config2.loadFromString(saved);
+    // 重新加载
+    var config2 = Ini.init(allocator);
+    defer config2.deinit();
+    try config2.loadFromString(saved);
 
-        const entry = config2.getEntry("db_host");
-        try std.testing.expect(entry != null);
+    const schema = config2.getSchema("db_host");
+    try std.testing.expect(schema != null);
 
-        const e = entry.?;
-        try std.testing.expectEqualStrings("The database server hostname", e.description.?);
-    }
+    const e = schema.?;
+    try std.testing.expectEqualStrings("Regular comment", e.description.?);
 }
 
-test "save and load with mixed annotations" {
+test "保存并加载混合注解" {
     const allocator = std.testing.allocator;
     var config = Ini.init(allocator);
     defer config.deinit();
@@ -288,7 +240,7 @@ test "save and load with mixed annotations" {
     const content =
         \\# Regular comment
         \\# @title Database Host
-        \\# @description The database server hostname
+        \\# Another comment
         \\db_host = localhost
     ;
 
@@ -299,26 +251,24 @@ test "save and load with mixed annotations" {
     defer allocator.free(saved);
 
     // 验证保存的格式正确
-    // 应该包含：# Regular comment\n# @title Database Host\n# @description The database server hostname
     try std.testing.expect(std.mem.indexOf(u8, saved, "# Regular comment") != null);
     try std.testing.expect(std.mem.indexOf(u8, saved, "# @title Database Host") != null);
-    try std.testing.expect(std.mem.indexOf(u8, saved, "# @description The database server hostname") != null);
+    try std.testing.expect(std.mem.indexOf(u8, saved, "# Another comment") != null);
 
     // 重新加载
     var config2 = Ini.init(allocator);
     defer config2.deinit();
     try config2.loadFromString(saved);
 
-    const entry = config2.getEntry("db_host");
-    try std.testing.expect(entry != null);
+    const schema = config2.getSchema("db_host");
+    try std.testing.expect(schema != null);
 
-    const e = entry.?;
-    try std.testing.expectEqualStrings("Regular comment", e.doc.?);
+    const e = schema.?;
     try std.testing.expectEqualStrings("Database Host", e.title.?);
-    try std.testing.expectEqualStrings("The database server hostname", e.description.?);
+    try std.testing.expectEqualStrings("Regular comment\nAnother comment", e.description.?);
 }
 
-test "save output order: doc, @title, @description" {
+test "保存输出保留 @title 和注释" {
     const allocator = std.testing.allocator;
     var config = Ini.init(allocator);
     defer config.deinit();
@@ -326,7 +276,7 @@ test "save output order: doc, @title, @description" {
     const content =
         \\# Regular comment
         \\# @title Database Host
-        \\# @description The database server hostname
+        \\# Another comment
         \\db_host = localhost
     ;
 
@@ -335,16 +285,13 @@ test "save output order: doc, @title, @description" {
     const saved = try config.saveToString(allocator);
     defer allocator.free(saved);
 
-    // 验证输出顺序：doc → @title → @description
-    const doc_index = std.mem.indexOf(u8, saved, "# Regular comment").?;
-    const title_index = std.mem.indexOf(u8, saved, "# @title Database Host").?;
-    const desc_index = std.mem.indexOf(u8, saved, "# @description The database server hostname").?;
-
-    try std.testing.expect(doc_index < title_index);
-    try std.testing.expect(title_index < desc_index);
+    // 验证输出包含必要元素
+    try std.testing.expect(std.mem.indexOf(u8, saved, "# Regular comment") != null);
+    try std.testing.expect(std.mem.indexOf(u8, saved, "# @title Database Host") != null);
+    try std.testing.expect(std.mem.indexOf(u8, saved, "# Another comment") != null);
 }
 
-test "parse and save multi-line doc comments" {
+test "解析并保存多行文档注释" {
     const allocator = std.testing.allocator;
     var config = Ini.init(allocator);
     defer config.deinit();
@@ -358,13 +305,13 @@ test "parse and save multi-line doc comments" {
 
     try config.loadFromString(content);
 
-    const entry = config.getEntry("key");
-    try std.testing.expect(entry != null);
+    const schema = config.getSchema("key");
+    try std.testing.expect(schema != null);
 
-    const e = entry.?;
-    try std.testing.expect(e.doc != null);
+    const e = schema.?;
+    try std.testing.expect(e.description != null);
     const expected = "First line of comment\nSecond line of comment\nThird line of comment";
-    try std.testing.expectEqualStrings(expected, e.doc.?);
+    try std.testing.expectEqualStrings(expected, e.description.?);
 
     // 保存并重新加载验证
     const saved = try config.saveToString(allocator);
@@ -374,12 +321,12 @@ test "parse and save multi-line doc comments" {
     defer config2.deinit();
     try config2.loadFromString(saved);
 
-    const entry2 = config2.getEntry("key");
-    try std.testing.expect(entry2 != null);
-    try std.testing.expectEqualStrings(expected, entry2.?.doc.?);
+    const schema2 = config2.getSchema("key");
+    try std.testing.expect(schema2 != null);
+    try std.testing.expectEqualStrings(expected, schema2.?.description.?);
 }
 
-test "parse section with mixed annotations" {
+test "解析 section 中的混合注解" {
     const allocator = std.testing.allocator;
     var config = Ini.init(allocator);
     defer config.deinit();
@@ -389,7 +336,7 @@ test "parse section with mixed annotations" {
         \\# Database configuration section
         \\
         \\# @title Host
-        \\# @description Database server host
+        \\# Database server host
         \\host = localhost
         \\
         \\# @title Port
@@ -401,21 +348,22 @@ test "parse section with mixed annotations" {
     const section = config.sections.get("database");
     try std.testing.expect(section != null);
 
-    const host_entry = section.?.getEntry("host");
-    try std.testing.expect(host_entry != null);
-    if (host_entry) |e| {
+    const host_schema = section.?.getSchema("host");
+    try std.testing.expect(host_schema != null);
+    if (host_schema) |e| {
         try std.testing.expectEqualStrings("Host", e.title.?);
-        try std.testing.expectEqualStrings("Database server host", e.description.?);
+        try std.testing.expectEqualStrings("Database configuration section\nDatabase server host", e.description.?);
     }
 
-    const port_entry = section.?.getEntry("port");
-    try std.testing.expect(port_entry != null);
-    if (port_entry) |e| {
+    const port_schema = section.?.getSchema("port");
+    try std.testing.expect(port_schema != null);
+    if (port_schema) |e| {
         try std.testing.expectEqualStrings("Port", e.title.?);
+        try std.testing.expect(e.description == null);
     }
 }
 
-test "semicolon comments with annotations" {
+test "分号注释与注解" {
     const allocator = std.testing.allocator;
     var config = Ini.init(allocator);
     defer config.deinit();
@@ -427,53 +375,169 @@ test "semicolon comments with annotations" {
 
     try config.loadFromString(content);
 
-    const entry = config.getEntry("key");
-    try std.testing.expect(entry != null);
+    const schema = config.getSchema("key");
+    try std.testing.expect(schema != null);
 
-    const e = entry.?;
+    const e = schema.?;
     try std.testing.expectEqualStrings("Semicolon Comment Title", e.title.?);
 }
 
-test "trailing whitespace in annotations" {
+test "注解中的尾部空格" {
     const allocator = std.testing.allocator;
     var config = Ini.init(allocator);
     defer config.deinit();
 
     const content =
         \\# @title Title with trailing spaces
-        \\# @description Description with trailing spaces
+        \\# Description with trailing spaces
         \\key = value
     ;
 
     try config.loadFromString(content);
 
-    const entry = config.getEntry("key");
-    try std.testing.expect(entry != null);
+    const schema = config.getSchema("key");
+    try std.testing.expect(schema != null);
 
-    const e = entry.?;
+    const e = schema.?;
     // trimAll 应该删除前后空格
     try std.testing.expectEqualStrings("Title with trailing spaces", e.title.?);
     try std.testing.expectEqualStrings("Description with trailing spaces", e.description.?);
 }
 
-test "empty doc after removing title and description" {
+test "解析各种空格的 @title" {
+    const allocator = std.testing.allocator;
+    var config = Ini.init(allocator);
+    defer config.deinit();
+
+    // 测试 # 后多个空格
+    var content_buffer: [200]u8 = undefined;
+    const content = try std.fmt.bufPrint(&content_buffer,
+        \\#     @title Multiple Spaces
+        \\key=value
+    , .{});
+
+    try config.loadFromString(content);
+    const schema = config.getSchema("key");
+    try std.testing.expect(schema != null);
+
+    const e = schema.?;
+    try std.testing.expectEqualStrings("Multiple Spaces", e.title.?);
+}
+
+test "解析 # 后没有空格的 @title" {
+    const allocator = std.testing.allocator;
+    var config = Ini.init(allocator);
+    defer config.deinit();
+
+    // 测试 # 后没有空格
+    const content = "#@title No Space\nkey=value\n";
+
+    try config.loadFromString(content);
+    const schema = config.getSchema("key");
+    try std.testing.expect(schema != null);
+
+    const e = schema.?;
+    try std.testing.expectEqualStrings("No Space", e.title.?);
+}
+
+test "解析包含 tab 字符的 @title" {
+    const allocator = std.testing.allocator;
+    var config = Ini.init(allocator);
+    defer config.deinit();
+
+    // 测试 tab 字符（使用拼接创建包含 tab 的字符串）
+    const content = try std.fmt.allocPrint(allocator, "#\t@title\tTab Title\nkey=value\n", .{});
+    defer allocator.free(content);
+
+    try config.loadFromString(content);
+    const schema = config.getSchema("key");
+    try std.testing.expect(schema != null);
+
+    const e = schema.?;
+    try std.testing.expectEqualStrings("Tab Title", e.title.?);
+}
+
+test "保存时统一 @title 的空格格式" {
+    const allocator = std.testing.allocator;
+    var config = Ini.init(allocator);
+    defer config.deinit();
+
+    // 各种空格格式保存后统一
+    const content = "#     @title    Multiple Spaces\nkey=value\n";
+
+    try config.loadFromString(content);
+    const saved = try config.saveToString(allocator);
+    defer allocator.free(saved);
+
+    // 验证保存后的格式是标准的
+    try std.testing.expect(std.mem.indexOf(u8, saved, "# @title Multiple Spaces") != null);
+}
+
+test "解析注释后有空行的配置项" {
     const allocator = std.testing.allocator;
     var config = Ini.init(allocator);
     defer config.deinit();
 
     const content =
-        \\# @title Only Title
-        \\# @description Only Description
-        \\key = value
+        \\# 这是端口
+        \\
+        \\port=8080
     ;
 
     try config.loadFromString(content);
 
-    const entry = config.getEntry("key");
-    try std.testing.expect(entry != null);
+    const schema = config.getSchema("port");
+    try std.testing.expect(schema != null);
 
-    const e = entry.?;
-    try std.testing.expectEqualStrings("Only Title", e.title.?);
-    try std.testing.expectEqualStrings("Only Description", e.description.?);
-    try std.testing.expect(e.doc == null); // 没有普通注释
+    const e = schema.?;
+    try std.testing.expectEqualStrings("这是端口", e.description.?);
+    try std.testing.expectEqualStrings("8080", e.value);
 }
+
+test "解析多个空行的配置项" {
+    const allocator = std.testing.allocator;
+    var config = Ini.init(allocator);
+    defer config.deinit();
+
+    const content =
+        \\# @title 端口配置
+        \\# 这是服务器端口
+        \\
+        \\
+        \\
+        \\port=8080
+    ;
+
+    try config.loadFromString(content);
+
+    const schema = config.getSchema("port");
+    try std.testing.expect(schema != null);
+
+    const e = schema.?;
+    try std.testing.expectEqualStrings("端口配置", e.title.?);
+    try std.testing.expectEqualStrings("这是服务器端口", e.description.?);
+    try std.testing.expectEqualStrings("8080", e.value);
+}
+
+test "保存带空行的配置" {
+    const allocator = std.testing.allocator;
+    var config = Ini.init(allocator);
+    defer config.deinit();
+
+    const content =
+        \\# 这是端口
+        \\
+        \\port=8080
+    ;
+
+    try config.loadFromString(content);
+    const saved = try config.saveToString(allocator);
+    defer allocator.free(saved);
+
+    // 验证注释被保留
+    try std.testing.expect(std.mem.indexOf(u8, saved, "# 这是端口") != null);
+    // 验证空行不会被保留
+    const lines = std.mem.count(u8, saved, "\n");
+    try std.testing.expect(lines == 2); // "# 这是端口\nport = 8080\n"
+}
+

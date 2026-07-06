@@ -183,42 +183,12 @@ pub fn build(b: *std.Build) void {
     const getschema_demo_cmd = b.addRunArtifact(getschema_demo_exe);
     getschema_demo_step.dependOn(&getschema_demo_cmd.step);
 
-    // 创建可执行文件
-    const exe = b.addExecutable(.{
-        .name = "zini",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/main.zig"),
-            .target = target,
-            .optimize = optimize,
-            .imports = &.{
-                .{ .name = "zini", .module = mod },
-            },
-        }),
-    });
-
-    b.installArtifact(exe);
-
-    // 运行主程序
-    const run_step = b.step("run", "Run the app");
-    const run_cmd = b.addRunArtifact(exe);
-    run_step.dependOn(&run_cmd.step);
-    run_cmd.step.dependOn(b.getInstallStep());
-    if (b.args) |args| {
-        run_cmd.addArgs(args);
-    }
-
     // 测试
     const mod_tests = b.addTest(.{
         .root_module = mod,
     });
 
     const run_mod_tests = b.addRunArtifact(mod_tests);
-
-    const exe_tests = b.addTest(.{
-        .root_module = exe.root_module,
-    });
-
-    const run_exe_tests = b.addRunArtifact(exe_tests);
 
     // 文档注释测试
     const doc_tests_mod = b.createModule(.{
@@ -235,10 +205,62 @@ pub fn build(b: *std.Build) void {
 
     const run_doc_tests = b.addRunArtifact(doc_tests);
 
+    // Schema iteration tests
+    const schema_iteration_mod = b.createModule(.{
+        .root_source_file = b.path("tests/schema_iteration.zig"),
+        .target = target,
+        .imports = &.{
+            .{ .name = "zini", .module = mod },
+        },
+    });
+
+    const schema_iteration_tests = b.addTest(.{
+        .root_module = schema_iteration_mod,
+    });
+
+    const run_schema_iteration_tests = b.addRunArtifact(schema_iteration_tests);
+
+    // getSchema section syntax tests
+    const getschema_section_mod = b.createModule(.{
+        .root_source_file = b.path("tests/getSchema_section_syntax.zig"),
+        .target = target,
+        .imports = &.{
+            .{ .name = "zini", .module = mod },
+        },
+    });
+
+    const getschema_section_tests = b.addTest(.{
+        .root_module = getschema_section_mod,
+    });
+
+    const run_getschema_section_tests = b.addRunArtifact(getschema_section_tests);
+
+    // 多行字符串测试
+    const multiline_strings_mod = b.createModule(.{
+        .root_source_file = b.path("tests/multiline_strings.zig"),
+        .target = target,
+        .imports = &.{
+            .{ .name = "zini", .module = mod },
+        },
+    });
+
+    const multiline_strings_tests = b.addTest(.{
+        .root_module = multiline_strings_mod,
+    });
+
+    const run_multiline_strings_tests = b.addRunArtifact(multiline_strings_tests);
+
     const test_step = b.step("test", "Run tests");
     test_step.dependOn(&run_mod_tests.step);
-    test_step.dependOn(&run_exe_tests.step);
     test_step.dependOn(&run_doc_tests.step);
+    test_step.dependOn(&run_schema_iteration_tests.step);
+    test_step.dependOn(&run_getschema_section_tests.step);
+    test_step.dependOn(&run_multiline_strings_tests.step);
+    test_step.dependOn(&run_mod_tests.step);
+    test_step.dependOn(&run_doc_tests.step);
+    test_step.dependOn(&run_schema_iteration_tests.step);
+    test_step.dependOn(&run_getschema_section_tests.step);
+    test_step.dependOn(&run_multiline_strings_tests.step);
 
     // Zig 0.16 特性：基准测试
     const bench_exe = b.addExecutable(.{
@@ -256,35 +278,6 @@ pub fn build(b: *std.Build) void {
     const bench_step = b.step("bench", "Run benchmarks");
     const bench_cmd = b.addRunArtifact(bench_exe);
     bench_step.dependOn(&bench_cmd.step);
-
-    // Zig 0.16 优化：添加不同优化级别的构建选项
-    const release_fast_exe = b.addExecutable(.{
-        .name = "zini_fast",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/main.zig"),
-            .target = target,
-            .optimize = .ReleaseFast,
-            .imports = &.{
-                .{ .name = "zini", .module = mod },
-            },
-        }),
-    });
-
-    const release_small_exe = b.addExecutable(.{
-        .name = "zini_small",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/main.zig"),
-            .target = target,
-            .optimize = .ReleaseSmall,
-            .imports = &.{
-                .{ .name = "zini", .module = mod },
-            },
-        }),
-    });
-
-    // 安装不同优化级别的版本
-    b.installArtifact(release_fast_exe);
-    b.installArtifact(release_small_exe);
 
     // 添加文档生成步骤
     const docs_step = b.step("docs", "Generate documentation");
@@ -326,7 +319,7 @@ pub fn build(b: *std.Build) void {
     // 动态库
     const shared_lib = b.addLibrary(.{
         .linkage = .dynamic,
-        .name = "zini",
+        .name = "zini_shared",
         .root_module = capi_mod,
     });
 
@@ -340,9 +333,87 @@ pub fn build(b: *std.Build) void {
     );
     header_step.dependOn(&header_install.step);
 
+    // ReleaseFast 静态库
+    const fast_static_lib = b.addLibrary(.{
+        .linkage = .static,
+        .name = "zini_fast",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/capi.zig"),
+            .target = target,
+            .optimize = .ReleaseFast,
+            .link_libc = true,
+            .imports = &.{
+                .{ .name = "zini", .module = mod },
+            },
+        }),
+    });
+
+    // ReleaseFast 动态库
+    const fast_shared_lib = b.addLibrary(.{
+        .linkage = .dynamic,
+        .name = "zini_fast_shared",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/capi.zig"),
+            .target = target,
+            .optimize = .ReleaseFast,
+            .link_libc = true,
+            .imports = &.{
+                .{ .name = "zini", .module = mod },
+            },
+        }),
+    });
+
+    // 安装 fast 版本库
+    b.installArtifact(fast_static_lib);
+    b.installArtifact(fast_shared_lib);
+
     // 库构建步骤
     const lib_step = b.step("lib", "Build C library (static and shared)");
     lib_step.dependOn(b.getInstallStep());
+
+    // Fast 版本库构建步骤
+    const lib_fast_step = b.step("lib-fast", "Build C library (ReleaseFast)");
+    lib_fast_step.dependOn(&fast_static_lib.step);
+    lib_fast_step.dependOn(&fast_shared_lib.step);
+
+    // ReleaseSmall 静态库
+    const small_static_lib = b.addLibrary(.{
+        .linkage = .static,
+        .name = "zini_small",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/capi.zig"),
+            .target = target,
+            .optimize = .ReleaseSmall,
+            .link_libc = true,
+            .imports = &.{
+                .{ .name = "zini", .module = mod },
+            },
+        }),
+    });
+
+    // ReleaseSmall 动态库
+    const small_shared_lib = b.addLibrary(.{
+        .linkage = .dynamic,
+        .name = "zini_small_shared",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/capi.zig"),
+            .target = target,
+            .optimize = .ReleaseSmall,
+            .link_libc = true,
+            .imports = &.{
+                .{ .name = "zini", .module = mod },
+            },
+        }),
+    });
+
+    // 安装 small 版本库
+    b.installArtifact(small_static_lib);
+    b.installArtifact(small_shared_lib);
+
+    // Small 版本库构建步骤
+    const lib_small_step = b.step("lib-small", "Build C library (ReleaseSmall)");
+    lib_small_step.dependOn(&small_static_lib.step);
+    lib_small_step.dependOn(&small_shared_lib.step);
 
     // ========== ARM32 gnueabihf 库构建 ==========
 
@@ -391,4 +462,151 @@ pub fn build(b: *std.Build) void {
     const arm32_step = b.step("arm32", "Build ARM32 gnueabihf C library (ReleaseSmall)");
     arm32_step.dependOn(&arm32_static_install.step);
     arm32_step.dependOn(&arm32_shared_install.step);
+
+    // ========== 多平台 c_zini C API 库构建 ==========
+
+    // 定义目标平台
+    const x86_64_linux_gnu_target = b.resolveTargetQuery(.{
+        .cpu_arch = .x86_64,
+        .os_tag = .linux,
+        .abi = .gnu,
+    });
+
+    const x86_64_windows_target = b.resolveTargetQuery(.{
+        .cpu_arch = .x86_64,
+        .os_tag = .windows,
+        .abi = .msvc,
+    });
+
+    const arm32_linux_gnu_target = b.resolveTargetQuery(.{
+        .cpu_arch = .arm,
+        .os_tag = .linux,
+        .abi = .gnueabihf,
+    });
+
+    const arm32_linux_musl_target = b.resolveTargetQuery(.{
+        .cpu_arch = .arm,
+        .os_tag = .linux,
+        .abi = .musleabihf,
+    });
+
+    // ========== x86_64 Linux GNU ==========
+
+    const x86_64_linux_gnu_capi_mod = b.createModule(.{
+        .root_source_file = b.path("src/capi.zig"),
+        .target = x86_64_linux_gnu_target,
+        .optimize = .ReleaseSmall,
+        .link_libc = true,
+        .imports = &.{
+            .{ .name = "zini", .module = mod },
+        },
+    });
+
+    const x86_64_linux_gnu_static = b.addLibrary(.{
+        .linkage = .static,
+        .name = "c_zini_x86_64_linux_gnu",
+        .root_module = x86_64_linux_gnu_capi_mod,
+    });
+
+    const x86_64_linux_gnu_shared = b.addLibrary(.{
+        .linkage = .dynamic,
+        .name = "c_zini_x86_64_linux_gnu",
+        .root_module = x86_64_linux_gnu_capi_mod,
+    });
+
+    b.installArtifact(x86_64_linux_gnu_static);
+    b.installArtifact(x86_64_linux_gnu_shared);
+
+    // ========== x86_64 Windows ==========
+
+    const x86_64_windows_capi_mod = b.createModule(.{
+        .root_source_file = b.path("src/capi.zig"),
+        .target = x86_64_windows_target,
+        .optimize = .ReleaseSmall,
+        .link_libc = true,
+        .imports = &.{
+            .{ .name = "zini", .module = mod },
+        },
+    });
+
+    const x86_64_windows_static = b.addLibrary(.{
+        .linkage = .static,
+        .name = "c_zini_x86_64_windows",
+        .root_module = x86_64_windows_capi_mod,
+    });
+
+    const x86_64_windows_shared = b.addLibrary(.{
+        .linkage = .dynamic,
+        .name = "c_zini_x86_64_windows",
+        .root_module = x86_64_windows_capi_mod,
+    });
+
+    b.installArtifact(x86_64_windows_static);
+    b.installArtifact(x86_64_windows_shared);
+
+    // ========== ARM32 Linux GNU ==========
+
+    const arm32_linux_gnu_capi_mod = b.createModule(.{
+        .root_source_file = b.path("src/capi.zig"),
+        .target = arm32_linux_gnu_target,
+        .optimize = .ReleaseSmall,
+        .link_libc = true,
+        .imports = &.{
+            .{ .name = "zini", .module = mod },
+        },
+    });
+
+    const arm32_linux_gnu_static = b.addLibrary(.{
+        .linkage = .static,
+        .name = "c_zini_arm_linux_gnueabihf",
+        .root_module = arm32_linux_gnu_capi_mod,
+    });
+
+    const arm32_linux_gnu_shared = b.addLibrary(.{
+        .linkage = .dynamic,
+        .name = "c_zini_arm_linux_gnueabihf",
+        .root_module = arm32_linux_gnu_capi_mod,
+    });
+
+    b.installArtifact(arm32_linux_gnu_static);
+    b.installArtifact(arm32_linux_gnu_shared);
+
+    // ========== ARM32 Linux MUSL ==========
+
+    const arm32_linux_musl_capi_mod = b.createModule(.{
+        .root_source_file = b.path("src/capi.zig"),
+        .target = arm32_linux_musl_target,
+        .optimize = .ReleaseSmall,
+        .link_libc = true,
+        .imports = &.{
+            .{ .name = "zini", .module = mod },
+        },
+    });
+
+    const arm32_linux_musl_static = b.addLibrary(.{
+        .linkage = .static,
+        .name = "c_zini_arm_linux_musleabihf",
+        .root_module = arm32_linux_musl_capi_mod,
+    });
+
+    const arm32_linux_musl_shared = b.addLibrary(.{
+        .linkage = .dynamic,
+        .name = "c_zini_arm_linux_musleabihf",
+        .root_module = arm32_linux_musl_capi_mod,
+    });
+
+    b.installArtifact(arm32_linux_musl_static);
+    b.installArtifact(arm32_linux_musl_shared);
+
+    // ========== 统一构建步骤 ==========
+
+    const c_zini_step = b.step("c-zini", "Build c_zini C library for all platforms (ReleaseSmall)");
+    c_zini_step.dependOn(&x86_64_linux_gnu_static.step);
+    c_zini_step.dependOn(&x86_64_linux_gnu_shared.step);
+    c_zini_step.dependOn(&x86_64_windows_static.step);
+    c_zini_step.dependOn(&x86_64_windows_shared.step);
+    c_zini_step.dependOn(&arm32_linux_gnu_static.step);
+    c_zini_step.dependOn(&arm32_linux_gnu_shared.step);
+    c_zini_step.dependOn(&arm32_linux_musl_static.step);
+    c_zini_step.dependOn(&arm32_linux_musl_shared.step);
 }
