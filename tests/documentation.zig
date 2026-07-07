@@ -3,6 +3,7 @@
 
 const std = @import("std");
 const Ini = @import("zini").Ini;
+const IniOptions = @import("zini").IniOptions;
 
 test "解析 @title 注解" {
     const allocator = std.testing.allocator;
@@ -28,7 +29,7 @@ test "解析 @title 注解" {
 
 test "解析普通注释到 description 字段" {
     const allocator = std.testing.allocator;
-    var config = Ini.init(allocator);
+    var config = Ini.initWithOptions(allocator, IniOptions.withDescription());
     defer config.deinit();
 
     const content =
@@ -50,7 +51,7 @@ test "解析普通注释到 description 字段" {
 
 test "解析混合注解（@title 和普通注释）" {
     const allocator = std.testing.allocator;
-    var config = Ini.init(allocator);
+    var config = Ini.initWithOptions(allocator, IniOptions.withDescription());
     defer config.deinit();
 
     const content =
@@ -72,7 +73,7 @@ test "解析混合注解（@title 和普通注释）" {
 
 test "解析 section 中的注解" {
     const allocator = std.testing.allocator;
-    var config = Ini.init(allocator);
+    var config = Ini.initWithOptions(allocator, IniOptions.withDescription());
     defer config.deinit();
 
     const content =
@@ -97,7 +98,7 @@ test "解析 section 中的注解" {
 
 test "解析多个不同注解的配置项" {
     const allocator = std.testing.allocator;
-    var config = Ini.init(allocator);
+    var config = Ini.initWithOptions(allocator, IniOptions.withDescription());
     defer config.deinit();
 
     const content =
@@ -178,7 +179,7 @@ test "解析值为空的 @title" {
 
 test "保存并加载带 @title 注解的配置" {
     const allocator = std.testing.allocator;
-    var config = Ini.init(allocator);
+    var config = Ini.initWithOptions(allocator, IniOptions.withDescription());
     defer config.deinit();
 
     const content =
@@ -193,7 +194,7 @@ test "保存并加载带 @title 注解的配置" {
     defer allocator.free(saved);
 
     // 重新加载
-    var config2 = Ini.init(allocator);
+    var config2 = Ini.initWithOptions(allocator, IniOptions.withDescription());
     defer config2.deinit();
     try config2.loadFromString(saved);
 
@@ -206,7 +207,7 @@ test "保存并加载带 @title 注解的配置" {
 
 test "保存并加载保持注释格式" {
     const allocator = std.testing.allocator;
-    var config = Ini.init(allocator);
+    var config = Ini.initWithOptions(allocator, IniOptions.withDescription());
     defer config.deinit();
 
     const content =
@@ -221,7 +222,7 @@ test "保存并加载保持注释格式" {
     defer allocator.free(saved);
 
     // 重新加载
-    var config2 = Ini.init(allocator);
+    var config2 = Ini.initWithOptions(allocator, IniOptions.withDescription());
     defer config2.deinit();
     try config2.loadFromString(saved);
 
@@ -234,7 +235,7 @@ test "保存并加载保持注释格式" {
 
 test "保存并加载混合注解" {
     const allocator = std.testing.allocator;
-    var config = Ini.init(allocator);
+    var config = Ini.initWithOptions(allocator, IniOptions.withDescription());
     defer config.deinit();
 
     const content =
@@ -256,7 +257,7 @@ test "保存并加载混合注解" {
     try std.testing.expect(std.mem.indexOf(u8, saved, "# Another comment") != null);
 
     // 重新加载
-    var config2 = Ini.init(allocator);
+    var config2 = Ini.initWithOptions(allocator, IniOptions.withDescription());
     defer config2.deinit();
     try config2.loadFromString(saved);
 
@@ -270,7 +271,7 @@ test "保存并加载混合注解" {
 
 test "保存输出保留 @title 和注释" {
     const allocator = std.testing.allocator;
-    var config = Ini.init(allocator);
+    var config = Ini.initWithOptions(allocator, IniOptions.withDescription());
     defer config.deinit();
 
     const content =
@@ -293,7 +294,7 @@ test "保存输出保留 @title 和注释" {
 
 test "解析并保存多行文档注释" {
     const allocator = std.testing.allocator;
-    var config = Ini.init(allocator);
+    var config = Ini.initWithOptions(allocator, IniOptions.withDescription());
     defer config.deinit();
 
     const content =
@@ -317,7 +318,7 @@ test "解析并保存多行文档注释" {
     const saved = try config.saveToString(allocator);
     defer allocator.free(saved);
 
-    var config2 = Ini.init(allocator);
+    var config2 = Ini.initWithOptions(allocator, IniOptions.withDescription());
     defer config2.deinit();
     try config2.loadFromString(saved);
 
@@ -328,7 +329,7 @@ test "解析并保存多行文档注释" {
 
 test "解析 section 中的混合注解" {
     const allocator = std.testing.allocator;
-    var config = Ini.init(allocator);
+    var config = Ini.initWithOptions(allocator, IniOptions.withDescription());
     defer config.deinit();
 
     const content =
@@ -384,7 +385,7 @@ test "分号注释与注解" {
 
 test "注解中的尾部空格" {
     const allocator = std.testing.allocator;
-    var config = Ini.init(allocator);
+    var config = Ini.initWithOptions(allocator, IniOptions.withDescription());
     defer config.deinit();
 
     const content =
@@ -475,7 +476,7 @@ test "保存时统一 @title 的空格格式" {
 
 test "解析注释后有空行的配置项" {
     const allocator = std.testing.allocator;
-    var config = Ini.init(allocator);
+    var config = Ini.initWithOptions(allocator, IniOptions.withDescription());
     defer config.deinit();
 
     const content =
@@ -496,7 +497,7 @@ test "解析注释后有空行的配置项" {
 
 test "解析多个空行的配置项" {
     const allocator = std.testing.allocator;
-    var config = Ini.init(allocator);
+    var config = Ini.initWithOptions(allocator, IniOptions.withDescription());
     defer config.deinit();
 
     const content =
@@ -521,7 +522,7 @@ test "解析多个空行的配置项" {
 
 test "保存带空行的配置" {
     const allocator = std.testing.allocator;
-    var config = Ini.init(allocator);
+    var config = Ini.initWithOptions(allocator, IniOptions.withDescription());
     defer config.deinit();
 
     const content =

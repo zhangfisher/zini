@@ -30,6 +30,24 @@ pub const Error = error{
     InvalidCharacter,
 };
 
+/// Ini 配置选项 - 位枚举
+pub const IniOptions = struct {
+    /// 位标志定义
+    pub const LoadDescription: u32 = 1; // 加载 description 注释（默认关闭）
+
+    flags: u32 = 0, // 默认值：不加载 description
+
+    /// 创建加载 description 的选项（保留完整注释）
+    pub fn withDescription() IniOptions {
+        return .{ .flags = LoadDescription };
+    }
+
+    /// 检查是否设置了某个标志
+    pub fn has(self: IniOptions, flag: u32) bool {
+        return (self.flags & flag) != 0;
+    }
+};
+
 /// A single key-value schema with type information
 pub const Schema = struct {
     key: []const u8,
@@ -39,6 +57,10 @@ pub const Schema = struct {
     title: ?[]const u8 = null,
     /// 描述（其他所有普通注释）
     description: ?[]const u8 = null,
+    /// 默认值（从 @default 注释标记解析）
+    default: ?[]const u8 = null,
+    /// 枚举选项（从 @enum 注释标记解析，多个值用逗号分隔）
+    @"enum": ?[]const u8 = null,
 
     /// Create a new schema with automatic type inference
     pub fn init(allocator: Allocator, key: []const u8, value: []const u8) Allocator.Error!Schema {
@@ -74,6 +96,12 @@ pub const Schema = struct {
         if (self.description) |desc_text| {
             allocator.free(desc_text);
         }
+        if (self.default) |default_text| {
+            allocator.free(default_text);
+        }
+        if (self.@"enum") |enum_text| {
+            allocator.free(enum_text);
+        }
     }
 
     /// Free schema resources except key (used when key is owned by HashMap)
@@ -85,61 +113,87 @@ pub const Schema = struct {
         if (self.description) |desc_text| {
             allocator.free(desc_text);
         }
+        if (self.default) |default_text| {
+            allocator.free(default_text);
+        }
+        if (self.@"enum") |enum_text| {
+            allocator.free(enum_text);
+        }
+    }
+
+    /// 获取值，支持默认值回退
+    /// 当 value 为空时，如果 default 不为空，则返回 default
+    /// 返回值始终非空（至少返回原始 value）
+    pub fn getValue(self: *const Schema) []const u8 {
+        // 先检查 value 是否为空（直接检查长度，避免重复 trim）
+        if (self.value.len > 0) {
+            return self.value;  // value 有内容，返回 value
+        }
+
+        // value 为空，尝试使用 default
+        if (self.default) |default_value| {
+            if (default_value.len > 0) {
+                return default_value;  // default 有内容，返回 default
+            }
+        }
+
+        // 都为空，返回原始 value（空字符串）
+        return self.value;
     }
 
     /// Get value as boolean
     pub fn asBool(self: *const Schema) !bool {
-        return TypeConverter.toBool(self.value);
+        return TypeConverter.toBool(self.getValue());
     }
 
     /// Get value as u8
     pub fn asU8(self: *const Schema) !u8 {
-        return TypeConverter.toU8(self.value);
+        return TypeConverter.toU8(self.getValue());
     }
 
     /// Get value as u16
     pub fn asU16(self: *const Schema) !u16 {
-        return TypeConverter.toU16(self.value);
+        return TypeConverter.toU16(self.getValue());
     }
 
     /// Get value as u32
     pub fn asU32(self: *const Schema) !u32 {
-        return TypeConverter.toU32(self.value);
+        return TypeConverter.toU32(self.getValue());
     }
 
     /// Get value as u64
     pub fn asU64(self: *const Schema) !u64 {
-        return TypeConverter.toU64(self.value);
+        return TypeConverter.toU64(self.getValue());
     }
 
     /// Get value as i8
     pub fn asI8(self: *const Schema) !i8 {
-        return TypeConverter.toI8(self.value);
+        return TypeConverter.toI8(self.getValue());
     }
 
     /// Get value as i16
     pub fn asI16(self: *const Schema) !i16 {
-        return TypeConverter.toI16(self.value);
+        return TypeConverter.toI16(self.getValue());
     }
 
     /// Get value as i32
     pub fn asI32(self: *const Schema) !i32 {
-        return TypeConverter.toI32(self.value);
+        return TypeConverter.toI32(self.getValue());
     }
 
     /// Get value as i64
     pub fn asI64(self: *const Schema) !i64 {
-        return TypeConverter.toI64(self.value);
+        return TypeConverter.toI64(self.getValue());
     }
 
     /// Get value as f32
     pub fn asF32(self: *const Schema) !f32 {
-        return TypeConverter.toF32(self.value);
+        return TypeConverter.toF32(self.getValue());
     }
 
     /// Get value as f64
     pub fn asF64(self: *const Schema) !f64 {
-        return TypeConverter.toF64(self.value);
+        return TypeConverter.toF64(self.getValue());
     }
 
     /// Get value as integer (generic)
@@ -170,7 +224,7 @@ pub const Schema = struct {
 
     /// Get value as string
     pub fn asString(self: *const Schema) []const u8 {
-        return TypeConverter.toString(self.value);
+        return TypeConverter.toString(self.getValue());
     }
 
     /// Check if value matches expected type
@@ -207,18 +261,40 @@ pub const Ini = struct {
     allocator: Allocator,
     schemas: StringHashMap(Schema),
     sections: StringHashMap(Ini),
+    options: IniOptions, // 存储加载选项
+    original_file_path: ?[]const u8 = null, // 记录原始文件路径，用于自动注释保留
 
-    /// Create a new empty Ini structure
+    /// Create a new empty Ini structure（默认：内存优化，不加载 description）
+    /// **行为变化**：从 v2.0 开始，默认不加载 description 以节省内存
     pub fn init(allocator: Allocator) Ini {
         return .{
             .allocator = allocator,
             .schemas = StringHashMap(Schema).init(allocator),
             .sections = StringHashMap(Ini).init(allocator),
+            .options = IniOptions{}, // 默认不加载 description
+            .original_file_path = null,
+        };
+    }
+
+    /// Create a new empty Ini structure（带完整选项）
+    /// 用于需要加载 description 或其他未来扩展功能的场景
+    pub fn initWithOptions(allocator: Allocator, options: IniOptions) Ini {
+        return .{
+            .allocator = allocator,
+            .schemas = StringHashMap(Schema).init(allocator),
+            .sections = StringHashMap(Ini).init(allocator),
+            .options = options,
+            .original_file_path = null,
         };
     }
 
     /// Free all resources
     pub fn deinit(self: *Ini) void {
+        // 释放原始文件路径
+        if (self.original_file_path) |path| {
+            self.allocator.free(path);
+        }
+
         // Free global entries
         var schema_iter = self.schemas.iterator();
         while (schema_iter.next()) |schema| {
@@ -242,6 +318,15 @@ pub const Ini = struct {
 
     /// Load INI from file
     pub fn load(self: *Ini, path: []const u8) Error!void {
+        // 记录原始文件路径（用于自动注释保留）
+        if (self.original_file_path) |old_path| {
+            self.allocator.free(old_path);
+        }
+        self.original_file_path = self.allocator.dupe(u8, path) catch |err| {
+            self.original_file_path = null;
+            return err;
+        };
+
         // 使用 C 标准库 API（跨平台、简单、适合库代码）
         const c_path = try self.allocator.dupeZ(u8, path);
         defer self.allocator.free(c_path);
@@ -295,8 +380,13 @@ pub const Ini = struct {
         try parser.parse();
     }
 
-    /// Save INI to file
-    pub fn save(self: *const Ini, path: []const u8) Error!void {
+    /// Save INI to file（自动处理注释保留）
+    pub fn save(self: *Ini, path: []const u8) Error!void {
+        // 尝试从原文件恢复缺失的注释
+        if (self.original_file_path) |original_path| {
+            _ = self.tryRestoreFromOriginal(original_path);
+        }
+
         // 使用 C 标准库 API（跨平台、简单、适合库代码）
         const c_path = try self.allocator.dupeZ(u8, path);
         defer self.allocator.free(c_path);
@@ -310,6 +400,59 @@ pub const Ini = struct {
 
         const bytes_written = std.c.fwrite(content.ptr, 1, content.len, c_file.?);
         if (bytes_written != content.len) return Error.WriteError;
+    }
+
+    /// 尝试从原文件恢复缺失的元数据（仅恢复字段为空的项）
+    fn tryRestoreFromOriginal(self: *Ini, path: []const u8) bool {
+        // 创建临时实例加载原文件的元数据
+        var temp_ini = Ini.initWithOptions(self.allocator, IniOptions.withDescription());
+        defer temp_ini.deinit();
+
+        // 尝试加载原文件（如果文件不存在或加载失败，返回 false）
+        temp_ini.load(path) catch {
+            return false;
+        };
+
+        // 恢复元数据到当前实例（只恢复对应字段为空的项）
+        restoreDescriptions(&temp_ini, self);
+        return true;
+    }
+
+    /// 辅助函数：恢复单个元数据字段
+    fn restoreField(allocator: Allocator, target_field: *?[]const u8, source_field: ?[]const u8) void {
+        if (target_field.* == null and source_field != null) {
+            target_field.* = allocator.dupe(u8, source_field.?) catch return;
+        }
+    }
+
+    /// 辅助函数：将 source 中的元数据恢复到 target
+    /// 规则：只恢复 target 中对应字段为空的配置项
+    fn restoreDescriptions(source: *const Ini, target: *Ini) void {
+        // 恢复全局 schemas 的元数据
+        var schema_iter = source.schemas.iterator();
+        while (schema_iter.next()) |entry| {
+            const key = entry.key_ptr.*;
+            const source_schema = entry.value_ptr.*;
+
+            if (target.schemas.getPtr(key)) |target_schema| {
+                // 恢复所有元数据字段
+                restoreField(target.allocator, &target_schema.description, source_schema.description);
+                restoreField(target.allocator, &target_schema.title, source_schema.title);
+                restoreField(target.allocator, &target_schema.default, source_schema.default);
+                restoreField(target.allocator, &target_schema.@"enum", source_schema.@"enum");
+            }
+        }
+
+        // 恢复 sections 的元数据
+        var section_iter = source.sections.iterator();
+        while (section_iter.next()) |entry| {
+            const section_name = entry.key_ptr.*;
+            const source_section = entry.value_ptr.*;
+
+            if (target.sections.getPtr(section_name)) |target_section| {
+                restoreDescriptions(&source_section, target_section);
+            }
+        }
     }
 
     /// Save INI to string
@@ -355,16 +498,16 @@ pub const Ini = struct {
         return buffer.toOwnedSlice(allocator);
     }
 
+    /// Helper function to write a metadata mark line
+    fn writeMetadataMark(allocator: Allocator, buffer: *std.ArrayList(u8), mark_name: []const u8, value: []const u8) !void {
+        const line = try std.fmt.allocPrint(allocator, "# @{s} {s}\n", .{ mark_name, value });
+        defer allocator.free(line);
+        try buffer.appendSlice(allocator, line);
+    }
+
     /// Helper function to format a single schema to buffer
     fn formatSchemaToBuffer(allocator: Allocator, buffer: *std.ArrayList(u8), schema: Schema) !void {
-        // Write @title comment if present
-        if (schema.title) |title| {
-            const title_line = try std.fmt.allocPrint(allocator, "# @title {s}\n", .{title});
-            defer allocator.free(title_line);
-            try buffer.appendSlice(allocator, title_line);
-        }
-
-        // Write description comments if present
+        // 1. 先写入 description（普通注释，支持多行）
         if (schema.description) |desc| {
             var line_iter = std.mem.splitScalar(u8, desc, '\n');
             while (line_iter.next()) |line| {
@@ -374,7 +517,19 @@ pub const Ini = struct {
             }
         }
 
-        // Write key = value
+        // 2. 如果有任何元数据标记，写入空注释行分隔
+        const has_metadata = schema.title != null or schema.default != null or schema.@"enum" != null;
+        if (has_metadata and schema.description != null) {
+            try buffer.appendSlice(allocator, "#\n");
+        }
+
+        // 3. 写入元数据标记（title, default, enum）
+        // 注意：只有非空值才写入对应的标记
+        if (schema.title) |title| try writeMetadataMark(allocator, buffer, "title", title);
+        if (schema.default) |def| try writeMetadataMark(allocator, buffer, "default", def);
+        if (schema.@"enum") |enm| try writeMetadataMark(allocator, buffer, "enum", enm);
+
+        // 4. 写入 key = value
         const key_value = try std.fmt.allocPrint(allocator, "{s} = {s}\n", .{ schema.key, schema.value });
         defer allocator.free(key_value);
         try buffer.appendSlice(allocator, key_value);
@@ -442,91 +597,98 @@ pub const Ini = struct {
         }
     }
 
-    /// 辅助函数：统一处理全局值的类型转换
-    fn getGlobalTypedValue(comptime T: type, ini: *const Ini, key: []const u8, comptime converterFn: fn ([]const u8) anyerror!T) !T {
-        switch (parseKey(key)) {
-            .section_key => |parsed| {
-                // Get from section
-                if (ini.sections.get(parsed.section)) |section| {
-                    if (section.get(parsed.key)) |value_str| {
-                        return converterFn(value_str);
-                    }
-                }
-                return error.KeyNotFound;
-            },
-            .global => |global_key| {
-                // Get from global schemas
-                if (ini.schemas.get(global_key)) |schema| {
-                    return converterFn(schema.value);
-                }
-                return error.KeyNotFound;
-            },
+    /// 泛型类型获取辅助函数
+    /// 使用 comptime 和 switch 语句消除样板代码
+    pub fn getTyped(comptime T: type, self: *const Ini, key: []const u8) !T {
+        if (self.getSchema(key)) |schema| {
+            // 使用 switch 语句分发到对应的 Schema 方法
+            return switch (T) {
+                bool => schema.asBool(),
+                u8 => schema.asU8(),
+                u16 => schema.asU16(),
+                u32 => schema.asU32(),
+                u64 => schema.asU64(),
+                i8 => schema.asI8(),
+                i16 => schema.asI16(),
+                i32 => schema.asI32(),
+                i64 => schema.asI64(),
+                f32 => schema.asF32(),
+                f64 => schema.asF64(),
+                []const u8 => schema.asString(),
+                else => @compileError("Type " ++ @typeName(T) ++ " is not supported"),
+            };
         }
+        return error.KeyNotFound;
     }
 
     /// Get global value as boolean
     pub fn getBool(self: *const Ini, key: []const u8) !bool {
-        return getGlobalTypedValue(bool, self, key, TypeConverter.toBool);
+        return getTyped(bool, self, key);
     }
 
     /// Get global value as u8
     pub fn getU8(self: *const Ini, key: []const u8) !u8 {
-        return getGlobalTypedValue(u8, self, key, TypeConverter.toU8);
+        return getTyped(u8, self, key);
     }
 
     /// Get global value as u16
     pub fn getU16(self: *const Ini, key: []const u8) !u16 {
-        return getGlobalTypedValue(u16, self, key, TypeConverter.toU16);
+        return getTyped(u16, self, key);
     }
 
     /// Get global value as u32
     pub fn getU32(self: *const Ini, key: []const u8) !u32 {
-        return getGlobalTypedValue(u32, self, key, TypeConverter.toU32);
+        return getTyped(u32, self, key);
     }
 
     /// Get global value as u64
     pub fn getU64(self: *const Ini, key: []const u8) !u64 {
-        return getGlobalTypedValue(u64, self, key, TypeConverter.toU64);
+        return getTyped(u64, self, key);
     }
 
     /// Get global value as i8
     pub fn getI8(self: *const Ini, key: []const u8) !i8 {
-        return getGlobalTypedValue(i8, self, key, TypeConverter.toI8);
+        return getTyped(i8, self, key);
     }
 
     /// Get global value as i16
     pub fn getI16(self: *const Ini, key: []const u8) !i16 {
-        return getGlobalTypedValue(i16, self, key, TypeConverter.toI16);
+        return getTyped(i16, self, key);
     }
 
     /// Get global value as i32
     pub fn getI32(self: *const Ini, key: []const u8) !i32 {
-        return getGlobalTypedValue(i32, self, key, TypeConverter.toI32);
+        return getTyped(i32, self, key);
     }
 
     /// Get global value as i64
     pub fn getI64(self: *const Ini, key: []const u8) !i64 {
-        return getGlobalTypedValue(i64, self, key, TypeConverter.toI64);
+        return getTyped(i64, self, key);
     }
 
     /// Get global value as f32
     pub fn getF32(self: *const Ini, key: []const u8) !f32 {
-        return getGlobalTypedValue(f32, self, key, TypeConverter.toF32);
+        return getTyped(f32, self, key);
     }
 
     /// Get global value as f64
     pub fn getF64(self: *const Ini, key: []const u8) !f64 {
-        return getGlobalTypedValue(f64, self, key, TypeConverter.toF64);
+        return getTyped(f64, self, key);
     }
 
     /// Get global value as integer (generic)
     pub fn getInt(self: *const Ini, key: []const u8) !i64 {
-        return self.getI64(key);
+        return getTyped(i64, self, key);
     }
 
     /// Get global value as float (generic)
     pub fn getFloat(self: *const Ini, key: []const u8) !f64 {
-        return self.getF64(key);
+        return getTyped(f64, self, key);
+    }
+
+    /// Get global value as string
+    pub fn getString(self: *const Ini, key: []const u8) ![]const u8 {
+        return getTyped([]const u8, self, key);
     }
 
     /// Set a value (supports <section>.<key> syntax)
@@ -540,34 +702,32 @@ pub const Ini = struct {
             },
             .global => |global_key| {
                 // Set in global schemas
-                if (self.schemas.get(global_key)) |_| {
-                    // Remove old schema and add new one
-                    const old_schema = self.schemas.fetchRemove(global_key).?;
-                    // Free old schema's resources (not the key, it's the same as HashMap key)
-                    self.allocator.free(old_schema.value.value);
-                    if (old_schema.value.title) |title| self.allocator.free(title);
-                    if (old_schema.value.description) |desc| self.allocator.free(desc);
-                    self.allocator.free(old_schema.key);
+                if (self.schemas.getPtr(global_key)) |schema| {
+                    // 直接修改现有Schema，保持datatype、title、description、key不变
+                    self.allocator.free(schema.value);
+                    schema.value = try self.allocator.dupe(u8, value);
+                    // datatype保持不变，确保类型一致性
+                    // title、description、key自动保留，无需处理
+                } else {
+                    // Add new schema - key ownership transferred to HashMap later
+                    const value_copy = try self.allocator.dupe(u8, value);
+
+                    const new_schema = Schema{
+                        .key = undefined, // Will be set to HashMap key after put
+                        .value = value_copy,
+                        .datatype = DataType.infer(value),
+                        .title = null,
+                        .description = null,
+                    };
+
+                    // Put in HashMap - this creates the key copy
+                    const key_copy = try self.allocator.dupe(u8, global_key);
+                    try self.schemas.put(key_copy, new_schema);
+
+                    // Set the schema's key pointer to point to HashMap's key
+                    const stored_schema = self.schemas.getPtr(key_copy).?;
+                    stored_schema.key = key_copy;
                 }
-
-                // Add new schema - key ownership transferred to HashMap later
-                const value_copy = try self.allocator.dupe(u8, value);
-
-                const new_schema = Schema{
-                    .key = undefined, // Will be set to HashMap key after put
-                    .value = value_copy,
-                    .datatype = DataType.infer(value),
-                    .title = null,
-                    .description = null,
-                };
-
-                // Put in HashMap - this creates the key copy
-                const key_copy = try self.allocator.dupe(u8, global_key);
-                try self.schemas.put(key_copy, new_schema);
-
-                // Set the schema's key pointer to point to HashMap's key
-                const stored_schema = self.schemas.getPtr(key_copy).?;
-                stored_schema.key = key_copy;
             },
         }
     }
@@ -668,6 +828,8 @@ pub const Ini = struct {
                     .datatype = schema.datatype,
                     .title = if (schema.title) |title| try self.allocator.dupe(u8, title) else null,
                     .description = if (schema.description) |desc| try self.allocator.dupe(u8, desc) else null,
+                    .default = if (schema.default) |def| try self.allocator.dupe(u8, def) else null,
+                    .@"enum" = if (schema.@"enum") |enm| try self.allocator.dupe(u8, enm) else null,
                 };
 
                 // Put in HashMap - this creates the key copy
@@ -697,6 +859,8 @@ pub const Ini = struct {
                     .datatype = schema.datatype,
                     .title = if (schema.title) |title| try self.allocator.dupe(u8, title) else null,
                     .description = if (schema.description) |desc| try self.allocator.dupe(u8, desc) else null,
+                    .default = if (schema.default) |def| try self.allocator.dupe(u8, def) else null,
+                    .@"enum" = if (schema.@"enum") |enm| try self.allocator.dupe(u8, enm) else null,
                 };
 
                 // Put in HashMap - this creates the key copy
@@ -725,6 +889,8 @@ pub const Ini = struct {
             .allocator = self.allocator,
             .schemas = StringHashMap(Schema).init(self.allocator),
             .sections = StringHashMap(Ini).init(self.allocator),
+            .options = self.options, // 继承父 Ini 的选项
+            .original_file_path = null, // section 不继承原始文件路径
         };
 
         try self.sections.put(name_copy, new_section);
@@ -762,6 +928,34 @@ const Parser = struct {
     current_section: ?*Ini = null,
     current_section_name: []const u8 = "", // 当前section的名称
     pending_comments: std.ArrayList([]const u8), // 累积的注释行
+
+    /// 解析元数据标记（格式：@name value）
+    /// 返回：{ name, value } 或 null（如果不是元数据标记）
+    /// 注意：value部分使用trimAll清理所有空白字符，兼容各种空格格式
+    fn parseMetadataMark(comment: []const u8) ?struct { name: []const u8, value: []const u8 } {
+        if (!std.mem.startsWith(u8, comment, "@")) return null;
+
+        const rest = comment[1..]; // 跳过@
+        // 查找第一个空白字符（空格或tab）来分隔名称和值
+        var separator_index: ?usize = null;
+        for (rest, 0..) |c, i| {
+            if (c == ' ' or c == '\t') {
+                separator_index = i;
+                break;
+            }
+        }
+
+        const space_index = separator_index orelse return null;
+
+        const name = rest[0..space_index];
+        // 使用trimAll清理所有空白字符（空格、制表符、回车、换行）
+        // 这样 "# @title 1" 和 "# @title        1" 会解析出相同的值
+        const value = trimAll(rest[space_index + 1 ..]);
+
+        if (value.len == 0) return null; // 空值无效
+
+        return .{ .name = name, .value = value };
+    }
 
     fn parse(self: *Parser) Error!void {
         self.pending_comments = std.ArrayList([]const u8).empty;
@@ -1131,61 +1325,62 @@ const Parser = struct {
         return result[0 .. offset - 1]; // 移除最后的换行符
     }
 
-    /// 设置 schema 的文档字段（从累积的注释中提取 title 和 description）
+    /// 设置 schema 的文档字段和元数据（从累积的注释中提取）
     fn setSchemaDocumentation(self: *Parser, schema: *Schema) !void {
         if (self.pending_comments.items.len == 0) {
             return;
         }
 
-        // 第一遍遍历：处理title并计算description所需的总大小
-        var title_value: ?[]const u8 = null;
-        var desc_count: usize = 0;
-        var total_desc_size: usize = 0;
+        // 用于累积非元数据的普通注释（description）
+        var description_parts = std.ArrayList([]const u8).empty;
+        defer {
+            for (description_parts.items) |part| self.allocator.free(part);
+            description_parts.deinit(self.allocator);
+        }
 
+        // 处理所有注释行
         for (self.pending_comments.items) |comment| {
-            if (std.mem.startsWith(u8, comment, "@title")) {
-                // 提取title值
-                const title = trimAll(comment["@title".len..]);
-                if (title.len > 0) {
-                    title_value = title;
+            // 尝试解析为元数据标记
+            if (parseMetadataMark(comment)) |metadata| {
+                const name = metadata.name;
+                const value = metadata.value;
+
+                // 处理支持的元数据类型：title, default, enum
+                if (std.mem.eql(u8, name, "title")) {
+                    schema.title = try self.allocator.dupe(u8, value);
+                } else if (std.mem.eql(u8, name, "default")) {
+                    schema.default = try self.allocator.dupe(u8, value);
+                } else if (std.mem.eql(u8, name, "enum")) {
+                    schema.@"enum" = try self.allocator.dupe(u8, value);
                 }
+                // 其他未知标记被忽略
             } else {
-                // 计算description大小（包括换行符）
-                total_desc_size += comment.len + 1;
-                desc_count += 1;
-            }
-        }
-
-        // 设置title
-        if (title_value) |title| {
-            schema.title = try self.allocator.dupe(u8, title);
-        }
-
-        // 设置description（单次分配）
-        if (desc_count > 0) {
-            // 调整大小（移除最后一个换行符）
-            if (total_desc_size > 0) total_desc_size -= 1;
-
-            const desc_buf = try self.allocator.alloc(u8, total_desc_size);
-            var offset: usize = 0;
-            var current_desc: usize = 0;
-
-            // 第二遍遍历：拷贝description内容
-            for (self.pending_comments.items) |comment| {
-                if (!std.mem.startsWith(u8, comment, "@title")) {
-                    @memcpy(desc_buf[offset..][0..comment.len], comment);
-                    offset += comment.len;
-
-                    // 添加换行符（除了最后一个）
-                    if (current_desc < desc_count - 1) {
-                        desc_buf[offset] = '\n';
-                        offset += 1;
-                    }
-                    current_desc += 1;
+                // 不是元数据标记，作为description的一部分
+                if (self.ini.options.has(IniOptions.LoadDescription)) {
+                    try description_parts.append(self.allocator, try self.allocator.dupe(u8, comment));
                 }
             }
+        }
 
-            schema.description = desc_buf[0..offset];
+        // 合并description
+        if (description_parts.items.len > 0) {
+            var total_size: usize = 0;
+            for (description_parts.items, 0..) |part, i| {
+                total_size += part.len;
+                if (i < description_parts.items.len - 1) total_size += 1; // \n
+            }
+
+            const desc = try self.allocator.alloc(u8, total_size);
+            var offset: usize = 0;
+            for (description_parts.items, 0..) |part, i| {
+                @memcpy(desc[offset..][0..part.len], part);
+                offset += part.len;
+                if (i < description_parts.items.len - 1) {
+                    desc[offset] = '\n';
+                    offset += 1;
+                }
+            }
+            schema.description = desc;
         }
 
         // 清空累积的注释并释放内存

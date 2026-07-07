@@ -15,8 +15,30 @@ const DataType = if (@hasDecl(@import("root"), "zini"))
 else
     @import("types.zig").DataType;
 
+const IniOptions = if (@hasDecl(@import("root"), "zini"))
+    @import("root").zini.IniOptions
+else
+    @import("ini.zig").IniOptions;
+
 /// Opaque pointer to Ini structure
 pub const zini_t = opaque {};
+
+/// Schema structure for C API
+pub const zini_schema_t = extern struct {
+    key: [*c]const u8,
+    value: [*c]const u8,
+    datatype: DataType,
+    title: [*c]const u8,
+    description: [*c]const u8,
+};
+
+/// IniOptions for C API
+pub const zini_options_t = extern struct {
+    flags: u32,
+};
+
+/// Option flags
+pub const ZINI_LOAD_DESCRIPTION: u32 = 1;
 
 /// Error codes for C API
 pub const zini_error_t = enum(c_int) {
@@ -60,6 +82,27 @@ export fn zini_new() ?*zini_t {
     const ini_ptr = allocator.create(Ini) catch return null;
     ini_ptr.* = Ini.init(allocator);
     return @ptrCast(ini_ptr);
+}
+
+/// Create a new Ini parser with options
+export fn zini_init_with_options(options: zini_options_t) ?*zini_t {
+    const allocator = std.heap.c_allocator;
+    const ini_ptr = allocator.create(Ini) catch return null;
+
+    // 将 C 选项转换为 Zig 选项
+    const zig_options = IniOptions{ .flags = options.flags };
+    ini_ptr.* = Ini.initWithOptions(allocator, zig_options);
+    return @ptrCast(ini_ptr);
+}
+
+/// Create default options (no description loading)
+export fn zini_options_default() zini_options_t {
+    return .{ .flags = 0 };
+}
+
+/// Create options with description loading enabled
+export fn zini_options_with_description() zini_options_t {
+    return .{ .flags = ZINI_LOAD_DESCRIPTION };
 }
 
 /// Destroy an Ini parser and free all resources
@@ -158,6 +201,60 @@ export fn zini_get_u64(parser: ?*zini_t, key: [*c]const u8, out: ?*u64) zini_err
     return .SUCCESS;
 }
 
+/// Get a global i8 value
+export fn zini_get_i8(parser: ?*zini_t, key: [*c]const u8, out: ?*i8) zini_error_t {
+    if (parser == null or key == null or out == null) return .INVALID_FORMAT;
+    const ini_ptr: *Ini = @ptrCast(@alignCast(parser.?));
+    const key_slice = std.mem.span(key);
+    out.?.* = ini_ptr.getI8(key_slice) catch |err| return errorToCode(err);
+    return .SUCCESS;
+}
+
+/// Get a global i16 value
+export fn zini_get_i16(parser: ?*zini_t, key: [*c]const u8, out: ?*i16) zini_error_t {
+    if (parser == null or key == null or out == null) return .INVALID_FORMAT;
+    const ini_ptr: *Ini = @ptrCast(@alignCast(parser.?));
+    const key_slice = std.mem.span(key);
+    out.?.* = ini_ptr.getI16(key_slice) catch |err| return errorToCode(err);
+    return .SUCCESS;
+}
+
+/// Get a global i32 value
+export fn zini_get_i32(parser: ?*zini_t, key: [*c]const u8, out: ?*i32) zini_error_t {
+    if (parser == null or key == null or out == null) return .INVALID_FORMAT;
+    const ini_ptr: *Ini = @ptrCast(@alignCast(parser.?));
+    const key_slice = std.mem.span(key);
+    out.?.* = ini_ptr.getI32(key_slice) catch |err| return errorToCode(err);
+    return .SUCCESS;
+}
+
+/// Get a global i64 value
+export fn zini_get_i64(parser: ?*zini_t, key: [*c]const u8, out: ?*i64) zini_error_t {
+    if (parser == null or key == null or out == null) return .INVALID_FORMAT;
+    const ini_ptr: *Ini = @ptrCast(@alignCast(parser.?));
+    const key_slice = std.mem.span(key);
+    out.?.* = ini_ptr.getI64(key_slice) catch |err| return errorToCode(err);
+    return .SUCCESS;
+}
+
+/// Get a global f32 value
+export fn zini_get_f32(parser: ?*zini_t, key: [*c]const u8, out: ?*f32) zini_error_t {
+    if (parser == null or key == null or out == null) return .INVALID_FORMAT;
+    const ini_ptr: *Ini = @ptrCast(@alignCast(parser.?));
+    const key_slice = std.mem.span(key);
+    out.?.* = ini_ptr.getF32(key_slice) catch |err| return errorToCode(err);
+    return .SUCCESS;
+}
+
+/// Get a global f64 value
+export fn zini_get_f64(parser: ?*zini_t, key: [*c]const u8, out: ?*f64) zini_error_t {
+    if (parser == null or key == null or out == null) return .INVALID_FORMAT;
+    const ini_ptr: *Ini = @ptrCast(@alignCast(parser.?));
+    const key_slice = std.mem.span(key);
+    out.?.* = ini_ptr.getF64(key_slice) catch |err| return errorToCode(err);
+    return .SUCCESS;
+}
+
 /// Get a global boolean value
 export fn zini_get_bool(parser: ?*zini_t, key: [*c]const u8, out: ?*bool) zini_error_t {
     if (parser == null or key == null or out == null) return .INVALID_FORMAT;
@@ -211,4 +308,23 @@ export fn zini_error_string(err: zini_error_t) [*c]const u8 {
         .INVALID_CHARACTER => "Invalid character",
         .KEY_NOT_FOUND => "Key not found",
     };
+}
+
+/// Get Schema for a key (supports <section>.<key> syntax)
+/// Returns: Schema structure containing key, value, datatype, title, description
+/// Note: The returned Schema is valid until the next operation on the parser
+export fn zini_get_schema(parser: ?*zini_t, key: [*c]const u8, schema: ?*zini_schema_t) zini_error_t {
+    if (parser == null or key == null or schema == null) return .INVALID_FORMAT;
+    const ini_ptr: *Ini = @ptrCast(@alignCast(parser.?));
+    const key_slice = std.mem.span(key);
+
+    const ini_schema = ini_ptr.getSchema(key_slice) orelse return .KEY_NOT_FOUND;
+
+    schema.?.*.key = if (ini_schema.key.len > 0) ini_schema.key.ptr else "";
+    schema.?.*.value = if (ini_schema.value.len > 0) ini_schema.value.ptr else "";
+    schema.?.*.datatype = ini_schema.datatype;
+    schema.?.*.title = if (ini_schema.title) |title| title.ptr else null;
+    schema.?.*.description = if (ini_schema.description) |desc| desc.ptr else null;
+
+    return .SUCCESS;
 }
