@@ -17,6 +17,9 @@ const types = @import("types.zig");
 pub const DataType = types.DataType;
 const TypeConverter = types.TypeConverter;
 
+// 导入字符串操作模块
+const string_mod = @import("string.zig");
+
 /// Error types for INI operations
 pub const Error = error{
     InvalidFormat,
@@ -28,6 +31,7 @@ pub const Error = error{
     WriteError,
     OutOfMemory,
     InvalidCharacter,
+    InvalidValue, // 校验失败
 };
 
 /// Ini 配置选项 - 位枚举
@@ -53,14 +57,15 @@ pub const Schema = struct {
     key: []const u8,
     value: []const u8,
     datatype: DataType,
+    flags: types.SchemFlags,
     /// 标题（从 @title 注释标记解析）
     title: ?[]const u8 = null,
     /// 描述（其他所有普通注释）
     description: ?[]const u8 = null,
     /// 默认值（从 @default 注释标记解析）
     default: ?[]const u8 = null,
-    /// 枚举选项（从 @enum 注释标记解析，多个值用逗号分隔）
-    @"enum": ?[]const u8 = null,
+    /// 选择项（从 @choices 注释标记解析，多个值用逗号分隔）
+    choices: ?[][]const u8 = null,
 
     /// Create a new schema with automatic type inference
     pub fn init(allocator: Allocator, key: []const u8, value: []const u8) Allocator.Error!Schema {
@@ -70,7 +75,8 @@ pub const Schema = struct {
         return Schema{
             .key = key_copy,
             .value = value_copy,
-            .datatype = DataType.infer(value),
+            .datatype = .string,  // 移除 DataType.infer，默认为 string (0)
+            .flags = .none,  // 默认无标志
         };
     }
 
@@ -83,6 +89,7 @@ pub const Schema = struct {
             .key = key_copy,
             .value = value_copy,
             .datatype = datatype,
+            .flags = .none,  // 自动类型推断，无需设置标志
         };
     }
 
@@ -99,8 +106,9 @@ pub const Schema = struct {
         if (self.default) |default_text| {
             allocator.free(default_text);
         }
-        if (self.@"enum") |enum_text| {
-            allocator.free(enum_text);
+        if (self.choices) |items| {
+            for (items) |item| allocator.free(item);
+            allocator.free(items);
         }
     }
 
@@ -116,8 +124,9 @@ pub const Schema = struct {
         if (self.default) |default_text| {
             allocator.free(default_text);
         }
-        if (self.@"enum") |enum_text| {
-            allocator.free(enum_text);
+        if (self.choices) |items| {
+            for (items) |item| allocator.free(item);
+            allocator.free(items);
         }
     }
 
@@ -142,84 +151,18 @@ pub const Schema = struct {
     }
 
     /// Get value as boolean
-    pub fn asBool(self: *const Schema) !bool {
-        return TypeConverter.toBool(self.getValue());
+    pub fn asBoolean(self: *const Schema) !bool {
+        return TypeConverter.toBoolean(self.getValue());
     }
 
-    /// Get value as u8
-    pub fn asU8(self: *const Schema) !u8 {
-        return TypeConverter.toU8(self.getValue());
+    /// Get value as number (i64)
+    pub fn asNumber(self: *const Schema) !i64 {
+        return TypeConverter.toNumber(self.getValue());
     }
 
-    /// Get value as u16
-    pub fn asU16(self: *const Schema) !u16 {
-        return TypeConverter.toU16(self.getValue());
-    }
-
-    /// Get value as u32
-    pub fn asU32(self: *const Schema) !u32 {
-        return TypeConverter.toU32(self.getValue());
-    }
-
-    /// Get value as u64
-    pub fn asU64(self: *const Schema) !u64 {
-        return TypeConverter.toU64(self.getValue());
-    }
-
-    /// Get value as i8
-    pub fn asI8(self: *const Schema) !i8 {
-        return TypeConverter.toI8(self.getValue());
-    }
-
-    /// Get value as i16
-    pub fn asI16(self: *const Schema) !i16 {
-        return TypeConverter.toI16(self.getValue());
-    }
-
-    /// Get value as i32
-    pub fn asI32(self: *const Schema) !i32 {
-        return TypeConverter.toI32(self.getValue());
-    }
-
-    /// Get value as i64
-    pub fn asI64(self: *const Schema) !i64 {
-        return TypeConverter.toI64(self.getValue());
-    }
-
-    /// Get value as f32
-    pub fn asF32(self: *const Schema) !f32 {
-        return TypeConverter.toF32(self.getValue());
-    }
-
-    /// Get value as f64
-    pub fn asF64(self: *const Schema) !f64 {
-        return TypeConverter.toF64(self.getValue());
-    }
-
-    /// Get value as integer (generic)
-    pub fn asInt(self: *const Schema) !i64 {
-        return switch (self.datatype) {
-            .u8 => @intCast(try self.asU8()),
-            .u16 => @intCast(try self.asU16()),
-            .u32 => @intCast(try self.asU32()),
-            .u64 => @intCast(try self.asU64()),
-            .i8 => try self.asI8(),
-            .i16 => try self.asI16(),
-            .i32 => @intCast(try self.asI32()),
-            .i64 => try self.asI64(),
-            .int => try self.asI64(),
-            else => error.TypeMismatch,
-        };
-    }
-
-    /// Get value as float (generic)
+    /// Get value as float (f64)
     pub fn asFloat(self: *const Schema) !f64 {
-        return switch (self.datatype) {
-            .f32 => @floatCast(try self.asF32()),
-            .f64 => try self.asF64(),
-            .float => try self.asF64(),
-            else => error.TypeMismatch,
-        };
+        return TypeConverter.toFloat(self.getValue());
     }
 
     /// Get value as string
@@ -247,7 +190,7 @@ const ParsedKey = union(enum) {
 /// Parse a key string into ParsedKey (supports <section>.<key> syntax)
 /// Returns: ParsedKey.global if no dot found, ParsedKey.section_key if dot found
 fn parseKey(key: []const u8) ParsedKey {
-    if (std.mem.indexOfScalar(u8, key, '.')) |dot_index| {
+    if (string_mod.indexOf(key, ".")) |dot_index| {
         // Parse section.key syntax
         const section_name = key[0..dot_index];
         const actual_key = key[dot_index + 1 ..];
@@ -263,6 +206,7 @@ pub const Ini = struct {
     sections: StringHashMap(Ini),
     options: IniOptions, // 存储加载选项
     original_file_path: ?[]const u8 = null, // 记录原始文件路径，用于自动注释保留
+    validators: @import("validate.zig").ValidatorRegistry, // 校验器注册表（公开字段）
 
     /// Create a new empty Ini structure（默认：内存优化，不加载 description）
     /// **行为变化**：从 v2.0 开始，默认不加载 description 以节省内存
@@ -273,6 +217,7 @@ pub const Ini = struct {
             .sections = StringHashMap(Ini).init(allocator),
             .options = IniOptions{}, // 默认不加载 description
             .original_file_path = null,
+            .validators = @import("validate.zig").ValidatorRegistry.init(allocator),
         };
     }
 
@@ -285,6 +230,7 @@ pub const Ini = struct {
             .sections = StringHashMap(Ini).init(allocator),
             .options = options,
             .original_file_path = null,
+            .validators = @import("validate.zig").ValidatorRegistry.init(allocator),
         };
     }
 
@@ -314,6 +260,9 @@ pub const Ini = struct {
             self.allocator.free(section.key_ptr.*);
         }
         self.sections.deinit();
+
+        // 释放 validators
+        self.validators.deinit();
     }
 
     /// Load INI from file
@@ -425,6 +374,18 @@ pub const Ini = struct {
         }
     }
 
+    /// 辅助函数：恢复数组字段
+    fn restoreFieldArray(allocator: Allocator, target: *?[][]const u8, source: ?[][]const u8) !void {
+        if (target.* == null and source != null) {
+            var array_copy = try allocator.alloc([]const u8, source.len);
+            errdefer allocator.free(array_copy);
+            for (source, 0..) |item, i| {
+                array_copy[i] = try allocator.dupe(u8, item);
+            }
+            target.* = array_copy;
+        }
+    }
+
     /// 辅助函数：将 source 中的元数据恢复到 target
     /// 规则：只恢复 target 中对应字段为空的配置项
     fn restoreDescriptions(source: *const Ini, target: *Ini) void {
@@ -439,7 +400,7 @@ pub const Ini = struct {
                 restoreField(target.allocator, &target_schema.description, source_schema.description);
                 restoreField(target.allocator, &target_schema.title, source_schema.title);
                 restoreField(target.allocator, &target_schema.default, source_schema.default);
-                restoreField(target.allocator, &target_schema.@"enum", source_schema.@"enum");
+                restoreFieldArray(target.allocator, &target_schema.choices, source_schema.choices) catch return;
             }
         }
 
@@ -518,16 +479,21 @@ pub const Ini = struct {
         }
 
         // 2. 如果有任何元数据标记，写入空注释行分隔
-        const has_metadata = schema.title != null or schema.default != null or schema.@"enum" != null;
+        const has_metadata = schema.title != null or schema.default != null or schema.choices != null;
         if (has_metadata and schema.description != null) {
             try buffer.appendSlice(allocator, "#\n");
         }
 
-        // 3. 写入元数据标记（title, default, enum）
+        // 3. 写入元数据标记（title, default, choices）
         // 注意：只有非空值才写入对应的标记
         if (schema.title) |title| try writeMetadataMark(allocator, buffer, "title", title);
         if (schema.default) |def| try writeMetadataMark(allocator, buffer, "default", def);
-        if (schema.@"enum") |enm| try writeMetadataMark(allocator, buffer, "enum", enm);
+        if (schema.choices) |items| {
+            const validate_module = @import("validate.zig");
+            const choices_str = try validate_module.join(allocator, items, ",");
+            defer allocator.free(choices_str);
+            try writeMetadataMark(allocator, buffer, "choices", choices_str);
+        }
 
         // 4. 写入 key = value
         const key_value = try std.fmt.allocPrint(allocator, "{s} = {s}\n", .{ schema.key, schema.value });
@@ -597,102 +563,50 @@ pub const Ini = struct {
         }
     }
 
-    /// 泛型类型获取辅助函数
-    /// 使用 comptime 和 switch 语句消除样板代码
-    pub fn getTyped(comptime T: type, self: *const Ini, key: []const u8) !T {
+    /// 校验指定 key 的值
+    pub fn validate(self: *const Ini, key: []const u8, value: []const u8) !void {
         if (self.getSchema(key)) |schema| {
-            // 使用 switch 语句分发到对应的 Schema 方法
-            return switch (T) {
-                bool => schema.asBool(),
-                u8 => schema.asU8(),
-                u16 => schema.asU16(),
-                u32 => schema.asU32(),
-                u64 => schema.asU64(),
-                i8 => schema.asI8(),
-                i16 => schema.asI16(),
-                i32 => schema.asI32(),
-                i64 => schema.asI64(),
-                f32 => schema.asF32(),
-                f64 => schema.asF64(),
-                []const u8 => schema.asString(),
-                else => @compileError("Type " ++ @typeName(T) ++ " is not supported"),
-            };
+            if (!self.validators.validate(key, value, schema)) {
+                std.log.err("校验失败：key '{s}' 的值 '{s}' 不符合要求", .{key, value});
+                return error.InvalidValue;
+            }
+        }
+    }
+
+    /// Get global value as string
+    pub fn getString(self: *const Ini, key: []const u8) ![]const u8 {
+        if (self.getSchema(key)) |schema| {
+            return schema.asString();
+        }
+        return error.KeyNotFound;
+    }
+
+    /// Get global value as number (i64)
+    pub fn getNumber(self: *const Ini, key: []const u8) !i64 {
+        if (self.getSchema(key)) |schema| {
+            return schema.asNumber();
         }
         return error.KeyNotFound;
     }
 
     /// Get global value as boolean
-    pub fn getBool(self: *const Ini, key: []const u8) !bool {
-        return getTyped(bool, self, key);
+    pub fn getBoolean(self: *const Ini, key: []const u8) !bool {
+        if (self.getSchema(key)) |schema| {
+            return schema.asBoolean();
+        }
+        return error.KeyNotFound;
     }
 
-    /// Get global value as u8
-    pub fn getU8(self: *const Ini, key: []const u8) !u8 {
-        return getTyped(u8, self, key);
-    }
-
-    /// Get global value as u16
-    pub fn getU16(self: *const Ini, key: []const u8) !u16 {
-        return getTyped(u16, self, key);
-    }
-
-    /// Get global value as u32
-    pub fn getU32(self: *const Ini, key: []const u8) !u32 {
-        return getTyped(u32, self, key);
-    }
-
-    /// Get global value as u64
-    pub fn getU64(self: *const Ini, key: []const u8) !u64 {
-        return getTyped(u64, self, key);
-    }
-
-    /// Get global value as i8
-    pub fn getI8(self: *const Ini, key: []const u8) !i8 {
-        return getTyped(i8, self, key);
-    }
-
-    /// Get global value as i16
-    pub fn getI16(self: *const Ini, key: []const u8) !i16 {
-        return getTyped(i16, self, key);
-    }
-
-    /// Get global value as i32
-    pub fn getI32(self: *const Ini, key: []const u8) !i32 {
-        return getTyped(i32, self, key);
-    }
-
-    /// Get global value as i64
-    pub fn getI64(self: *const Ini, key: []const u8) !i64 {
-        return getTyped(i64, self, key);
-    }
-
-    /// Get global value as f32
-    pub fn getF32(self: *const Ini, key: []const u8) !f32 {
-        return getTyped(f32, self, key);
-    }
-
-    /// Get global value as f64
-    pub fn getF64(self: *const Ini, key: []const u8) !f64 {
-        return getTyped(f64, self, key);
-    }
-
-    /// Get global value as integer (generic)
-    pub fn getInt(self: *const Ini, key: []const u8) !i64 {
-        return getTyped(i64, self, key);
-    }
-
-    /// Get global value as float (generic)
+    /// Get global value as float (f64)
     pub fn getFloat(self: *const Ini, key: []const u8) !f64 {
-        return getTyped(f64, self, key);
-    }
-
-    /// Get global value as string
-    pub fn getString(self: *const Ini, key: []const u8) ![]const u8 {
-        return getTyped([]const u8, self, key);
+        if (self.getSchema(key)) |schema| {
+            return schema.asFloat();
+        }
+        return error.KeyNotFound;
     }
 
     /// Set a value (supports <section>.<key> syntax)
-    pub fn set(self: *Ini, key: []const u8, value: []const u8) Allocator.Error!void {
+    pub fn set(self: *Ini, key: []const u8, value: []const u8) Error!void {
         switch (parseKey(key)) {
             .section_key => |parsed| {
                 // Get or create section Ini
@@ -701,6 +615,9 @@ pub const Ini = struct {
                 try section_ini.set(parsed.key, value);
             },
             .global => |global_key| {
+                // 先校验再设置
+                try self.validate(global_key, value);
+
                 // Set in global schemas
                 if (self.schemas.getPtr(global_key)) |schema| {
                     // 直接修改现有Schema，保持datatype、title、description、key不变
@@ -715,7 +632,8 @@ pub const Ini = struct {
                     const new_schema = Schema{
                         .key = undefined, // Will be set to HashMap key after put
                         .value = value_copy,
-                        .datatype = DataType.infer(value),
+                        .datatype = DataType.infer(value),  // 自动推断类型
+                        .flags = .none,  // 默认无标志
                         .title = null,
                         .description = null,
                     };
@@ -826,10 +744,18 @@ pub const Ini = struct {
                     .key = undefined, // Will be set to HashMap key after put
                     .value = value_copy,
                     .datatype = schema.datatype,
+                    .flags = schema.flags,  // 复制 flags
                     .title = if (schema.title) |title| try self.allocator.dupe(u8, title) else null,
                     .description = if (schema.description) |desc| try self.allocator.dupe(u8, desc) else null,
                     .default = if (schema.default) |def| try self.allocator.dupe(u8, def) else null,
-                    .@"enum" = if (schema.@"enum") |enm| try self.allocator.dupe(u8, enm) else null,
+                    .choices = if (schema.choices) |items| blk: {
+                        var array_copy = try self.allocator.alloc([]const u8, items.len);
+                        errdefer self.allocator.free(array_copy);
+                        for (items, 0..) |item, i| {
+                            array_copy[i] = try self.allocator.dupe(u8, item);
+                        }
+                        break :blk array_copy;
+                    } else null,
                 };
 
                 // Put in HashMap - this creates the key copy
@@ -857,10 +783,18 @@ pub const Ini = struct {
                     .key = undefined, // Will be set to HashMap key after put
                     .value = value_copy,
                     .datatype = schema.datatype,
+                    .flags = schema.flags,  // 复制 flags
                     .title = if (schema.title) |title| try self.allocator.dupe(u8, title) else null,
                     .description = if (schema.description) |desc| try self.allocator.dupe(u8, desc) else null,
                     .default = if (schema.default) |def| try self.allocator.dupe(u8, def) else null,
-                    .@"enum" = if (schema.@"enum") |enm| try self.allocator.dupe(u8, enm) else null,
+                    .choices = if (schema.choices) |items| blk: {
+                        var array_copy = try self.allocator.alloc([]const u8, items.len);
+                        errdefer self.allocator.free(array_copy);
+                        for (items, 0..) |item, i| {
+                            array_copy[i] = try self.allocator.dupe(u8, item);
+                        }
+                        break :blk array_copy;
+                    } else null,
                 };
 
                 // Put in HashMap - this creates the key copy
@@ -891,6 +825,7 @@ pub const Ini = struct {
             .sections = StringHashMap(Ini).init(self.allocator),
             .options = self.options, // 继承父 Ini 的选项
             .original_file_path = null, // section 不继承原始文件路径
+            .validators = @import("validate.zig").ValidatorRegistry.init(self.allocator),
         };
 
         try self.sections.put(name_copy, new_section);
@@ -933,7 +868,7 @@ const Parser = struct {
     /// 返回：{ name, value } 或 null（如果不是元数据标记）
     /// 注意：value部分使用trimAll清理所有空白字符，兼容各种空格格式
     fn parseMetadataMark(comment: []const u8) ?struct { name: []const u8, value: []const u8 } {
-        if (!std.mem.startsWith(u8, comment, "@")) return null;
+        if (!string_mod.startsWith(comment, "@")) return null;
 
         const rest = comment[1..]; // 跳过@
         // 查找第一个空白字符（空格或tab）来分隔名称和值
@@ -948,9 +883,9 @@ const Parser = struct {
         const space_index = separator_index orelse return null;
 
         const name = rest[0..space_index];
-        // 使用trimAll清理所有空白字符（空格、制表符、回车、换行）
+        // 使用trim清理所有空白字符（空格、制表符、回车、换行）
         // 这样 "# @title 1" 和 "# @title        1" 会解析出相同的值
-        const value = trimAll(rest[space_index + 1 ..]);
+        const value = string_mod.trim(rest[space_index + 1 ..]);
 
         if (value.len == 0) return null; // 空值无效
 
@@ -1018,30 +953,12 @@ const Parser = struct {
             return Error.InvalidFormat;
         }
 
-        var key_full = trimAll(self.content[key_start..self.pos]);
+        const key_full = string_mod.trim(self.content[key_start..self.pos]);
         self.pos += 1; // Skip '='
 
         // Skip whitespace after =
         while (self.pos < self.content.len and self.content[self.pos] == ' ') {
             self.pos += 1;
-        }
-
-        // Parse key and optional type annotation: key:type = value
-        var actual_key = key_full;
-        var explicit_datatype: ?DataType = null;
-
-        if (std.mem.indexOfScalar(u8, key_full, ':')) |colon_pos| {
-            const key_part = key_full[0..colon_pos];
-            const type_part = trimAll(key_full[colon_pos + 1 ..]);
-
-            // 检查是否是有效的类型标识符
-            if (DataType.parse(type_part)) |datatype| {
-                actual_key = trimAll(key_part);
-                explicit_datatype = datatype;
-            } else {
-                // 如果不是有效类型，保持原样
-                actual_key = key_full;
-            }
         }
 
         // 检查当前位置是否以 ``` 开头（多行字符串开始）
@@ -1060,71 +977,40 @@ const Parser = struct {
         var value: []const u8 = undefined;
 
         if (is_multiline) {
-            // 类型约束检查：非 string 类型忽略多行语法
-            if (explicit_datatype == null or explicit_datatype.? == .string) {
-                // 解析多行字符串（返回原始内容 slice）
-                const multiline_content = self.parseMultilineValue();
-                // 对 trimAll 后的内容进行内存分配
-                const trimmed_multiline = trimAll(multiline_content);
-                value = trimmed_multiline;
-            } else {
-                // 非字符串类型，按单行处理
-                // 先跳过 ``` 标记
-                while (self.pos < self.content.len and
-                       (self.content[self.pos] == ' ' or self.content[self.pos] == '\t')) {
-                    self.pos += 1;
-                }
-                self.pos += 3; // 跳过 ```
-
-                // 读取单行值
-                const single_value = self.parseSingleLineValue();
-                value = single_value;
-
-                // 处理引号
-                if (value.len >= 2 and (value[0] == '"' or value[0] == '\'')) {
-                    const quote = value[0];
-                    if (value[value.len - 1] != quote) return Error.UnclosedQuote;
-                    value = value[1 .. value.len - 1];
-                }
-            }
+            // 解析多行字符串（返回原始内容 slice）
+            const multiline_content = self.parseMultilineValue();
+            // 对 trimAll 后的内容进行内存分配
+            const trimmed_multiline = string_mod.trim(multiline_content);
+            value = trimmed_multiline;
         } else {
             // 不是多行字符串，读取单行值
             value = self.parseSingleLineValue();
 
             // 处理引号
-            if (value.len >= 2 and (value[0] == '"' or value[0] == '\'')) {
-                const quote = value[0];
-                if (value[value.len - 1] != quote) return Error.UnclosedQuote;
-                value = value[1 .. value.len - 1];
+            if (value.len >= 2 and string_mod.isQuote(value[0])) {
+                if (value[value.len - 1] != value[0]) return Error.UnclosedQuote;
+                value = string_mod.unquote(value);
             }
         }
 
-        // Create schema with explicit or inferred type (without key - key will be set later)
+        // Create schema with inferred type (without key - key will be set later)
         const value_copy = try self.allocator.dupe(u8, value);
 
-        var schema = if (explicit_datatype) |datatype|
-            Schema{
-                .key = undefined, // Will be set after put
-                .value = value_copy,
-                .datatype = datatype,
-                .title = null,
-                .description = null,
-            }
-        else
-            Schema{
-                .key = undefined, // Will be set after put
-                .value = value_copy,
-                .datatype = DataType.infer(value),
-                .title = null,
-                .description = null,
-            };
+        var schema = Schema{
+            .key = undefined, // Will be set after put
+            .value = value_copy,
+            .datatype = DataType.infer(value),  // 自动推断类型
+            .flags = .none,  // 默认无标志
+            .title = null,
+            .description = null,
+        };
 
         // 设置文档注释（包含 title 和 description）
         try self.setSchemaDocumentation(&schema);
 
         if (self.current_section) |section| {
             // Put in HashMap - this creates the key copy
-            const key_copy = try self.allocator.dupe(u8, actual_key);
+            const key_copy = try self.allocator.dupe(u8, key_full);
             try section.schemas.put(key_copy, schema);
 
             // Set the schema's key pointer to point to HashMap's key
@@ -1132,7 +1018,7 @@ const Parser = struct {
             stored_schema.key = key_copy;
         } else {
             // Put in HashMap - this creates the key copy
-            const key_copy = try self.allocator.dupe(u8, actual_key);
+            const key_copy = try self.allocator.dupe(u8, key_full);
             try self.ini.schemas.put(key_copy, schema);
 
             // Set the schema's key pointer to point to HashMap's key
@@ -1267,9 +1153,9 @@ const Parser = struct {
             self.pos += 1;
         }
 
-        // 提取注释内容并使用 trimAll 删除前后空格
+        // 提取注释内容并使用 trim 删除前后空格
         const comment_raw = self.content[start..self.pos];
-        const comment_trimmed = trimAll(comment_raw);
+        const comment_trimmed = string_mod.trim(comment_raw);
 
         // 跳过空注释
         if (comment_trimmed.len == 0) {
@@ -1345,13 +1231,14 @@ const Parser = struct {
                 const name = metadata.name;
                 const value = metadata.value;
 
-                // 处理支持的元数据类型：title, default, enum
+                // 处理支持的元数据类型：title, default, choices
                 if (std.mem.eql(u8, name, "title")) {
                     schema.title = try self.allocator.dupe(u8, value);
                 } else if (std.mem.eql(u8, name, "default")) {
                     schema.default = try self.allocator.dupe(u8, value);
-                } else if (std.mem.eql(u8, name, "enum")) {
-                    schema.@"enum" = try self.allocator.dupe(u8, value);
+                } else if (std.mem.eql(u8, name, "choices")) {
+                    const validate = @import("validate.zig");
+                    schema.choices = try validate.split(self.allocator, value, ",");
                 }
                 // 其他未知标记被忽略
             } else {
@@ -1400,28 +1287,14 @@ const Parser = struct {
     }
 
     fn skipWhitespace(self: *Parser) void {
-        while (self.pos < self.content.len and (self.content[self.pos] == ' ' or self.content[self.pos] == '\t' or self.content[self.pos] == '\r' or self.content[self.pos] == '\n')) {
+        while (self.pos < self.content.len and string_mod.isWhitespace(self.content[self.pos])) {
             self.pos += 1;
         }
     }
 
-    fn trimAll(s: []const u8) []const u8 {
-        // 使用标准库的trim函数，功能相同但更高效且经过充分测试
-        return std.mem.trim(u8, s, " \t\r\n");
-    }
-
-    fn trimLeft(s: []const u8) []const u8 {
-        // 去除字符串左侧的空白字符
-        var start: usize = 0;
-        while (start < s.len and (s[start] == ' ' or s[start] == '\t' or s[start] == '\r')) {
-            start += 1;
-        }
-        return s[start..];
-    }
-
     /// 提取值（不再支持行尾注释）
     fn extractValueWithoutComment(s: []const u8) []const u8 {
-        return trimAll(s);
+        return string_mod.trim(s);
     }
 };
 
@@ -1527,28 +1400,28 @@ test "add() method with Schema" {
     defer ini.deinit();
 
     // Create Schemas with explicit types
-    var schema = try Schema.initWithType(allocator, "test", "42", DataType.i64);
+    var schema = try Schema.initWithType(allocator, "test", "42", DataType.number);
     defer schema.deinit(allocator);
 
     // Add to global (deep copy is made)
     try ini.add("count", schema);
     try std.testing.expect(ini.has("count"));
-    try std.testing.expectEqual(@as(i64, 42), ini.getInt("count") catch unreachable);
+    try std.testing.expectEqual(@as(i64, 42), ini.getNumber("count") catch unreachable);
 
     // Add to section
-    var schema2 = try Schema.initWithType(allocator, "flag", "true", DataType.bool);
+    var schema2 = try Schema.initWithType(allocator, "flag", "true", DataType.boolean);
     defer schema2.deinit(allocator);
 
     try ini.add("settings.enabled", schema2);
     try std.testing.expect(ini.has("settings.enabled"));
-    try std.testing.expectEqual(true, ini.getBool("settings.enabled") catch unreachable);
+    try std.testing.expectEqual(true, ini.getBoolean("settings.enabled") catch unreachable);
 
     // Test replacing existing key
-    var schema3 = try Schema.initWithType(allocator, "test", "100", DataType.i64);
+    var schema3 = try Schema.initWithType(allocator, "test", "100", DataType.number);
     defer schema3.deinit(allocator);
 
     try ini.add("count", schema3);
-    try std.testing.expectEqual(@as(i64, 100), ini.getInt("count") catch unreachable);
+    try std.testing.expectEqual(@as(i64, 100), ini.getNumber("count") catch unreachable);
 }
 
 test "has() method with section support" {
@@ -1610,3 +1483,188 @@ test "remove() method with section support" {
     try std.testing.expect(ini.remove("section3")); // Removes section
     try std.testing.expect(!ini.has("section3"));
 }
+
+test "choices 数组解析" {
+    const allocator = std.testing.allocator;
+    var ini = Ini.init(allocator);
+    defer ini.deinit();
+
+    const content =
+        \\# @choices red,green,blue
+        \\color = red
+    ;
+
+    try ini.loadFromString(content);
+
+    // 验证 choices 数组正确解析
+    const schema = ini.getSchema("color").?;
+    try std.testing.expect(schema.choices != null);
+    try std.testing.expectEqual(@as(usize, 3), schema.choices.?.len);
+    try std.testing.expectEqualStrings("red", schema.choices.?[0]);
+    try std.testing.expectEqualStrings("green", schema.choices.?[1]);
+    try std.testing.expectEqualStrings("blue", schema.choices.?[2]);
+}
+
+test "choices 数组序列化" {
+    const allocator = std.testing.allocator;
+    var ini = Ini.init(allocator);
+    defer ini.deinit();
+
+    // 创建带 choices 的 schema
+    var schema = try Schema.init(allocator, "color", "red");
+
+    // 手动设置 choices 数组
+    const choices = [_][]const u8{ "red", "green", "blue" };
+    var choices_copy = try allocator.alloc([]const u8, choices.len);
+    for (choices, 0..) |item, i| {
+        choices_copy[i] = try allocator.dupe(u8, item);
+    }
+    schema.choices = choices_copy;
+
+    try ini.add("color", schema);
+
+    // 注意：schema.deinit 会释放 choices_copy，所以不需要额外释放
+    schema.deinit(allocator);
+
+    // 序列化
+    const serialized = try ini.saveToString(allocator);
+    defer allocator.free(serialized);
+
+    // 验证序列化结果包含 @choices 标记
+    try std.testing.expect(std.mem.indexOf(u8, serialized, "@choices") != null);
+    try std.testing.expect(std.mem.indexOf(u8, serialized, "red,green,blue") != null);
+}
+
+test "内置 choices 校验器" {
+    const allocator = std.testing.allocator;
+    var ini = Ini.init(allocator);
+    defer ini.deinit();
+
+    const content =
+        \\# @choices red,green,blue
+        \\color = red
+    ;
+
+    try ini.loadFromString(content);
+
+    // 测试有效值
+    try ini.set("color", "green");
+    try std.testing.expectEqualStrings("green", ini.get("color").?);
+
+    // 测试无效值（应该失败）
+    try std.testing.expectError(error.InvalidValue, ini.set("color", "yellow"));
+}
+
+test "添加自定义校验器" {
+    const allocator = std.testing.allocator;
+    var ini = Ini.init(allocator);
+    defer ini.deinit();
+
+    // 创建自定义校验器
+    const RangeValidator = struct {
+        min: u64,
+        max: u64,
+
+        fn validateImpl(value: []const u8, schema: *const Schema) bool {
+            _ = schema;
+            const num = std.fmt.parseInt(u64, value, 10) catch return false;
+            return num >= 1024 and num <= 65535;
+        }
+    };
+
+    const validator = @import("validate.zig").Validator.init(
+        "range",
+        RangeValidator.validateImpl
+    );
+
+    // 添加校验器到 port 键
+    try ini.validators.add("port", validator);
+
+    // 先创建一个 port 键
+    try ini.set("port", "8080");
+
+    // 测试有效值
+    try ini.set("port", "8080");
+    try std.testing.expectEqualStrings("8080", ini.get("port").?);
+
+    // 测试无效值（应该失败）
+    try std.testing.expectError(error.InvalidValue, ini.set("port", "100"));
+}
+
+test "validators API - add 和 remove" {
+    const allocator = std.testing.allocator;
+    var ini = Ini.init(allocator);
+    defer ini.deinit();
+
+    // 创建测试校验器
+    const TestValidator = struct {
+        fn validateImpl(value: []const u8, schema: *const Schema) bool {
+            _ = schema;
+            return std.mem.eql(u8, value, "ok");
+        }
+    };
+
+    const validator1 = @import("validate.zig").Validator.init("test1", TestValidator.validateImpl);
+    const validator2 = @import("validate.zig").Validator.init("test2", TestValidator.validateImpl);
+
+    // 添加校验器
+    try ini.validators.add("key", validator1);
+    try ini.validators.add("key", validator2);
+
+    // 创建测试键
+    try ini.set("key", "ok");
+
+    // 测试两个校验器都生效
+    try std.testing.expectEqualStrings("ok", ini.get("key").?);
+
+    // 移除特定校验器
+    ini.validators.remove("key", "test1");
+    try ini.set("key", "ok"); // 应该仍然有效
+
+    // 移除所有校验器
+    ini.validators.remove("key", "");
+    try ini.set("key", "any_value"); // 现在应该接受任何值
+}
+
+test "choices 校验器 + 自定义校验器组合" {
+    const allocator = std.testing.allocator;
+    var ini = Ini.init(allocator);
+    defer ini.deinit();
+
+    const content =
+        \\# @choices admin,user,guest
+        \\role = user
+    ;
+
+    try ini.loadFromString(content);
+
+    // 添加自定义校验器（只允许 user 和 guest）
+    const RoleValidator = struct {
+        fn validateImpl(value: []const u8, schema: *const Schema) bool {
+            _ = schema;
+            // 只允许 user 和 guest
+            return std.mem.eql(u8, value, "user") or std.mem.eql(u8, value, "guest");
+        }
+    };
+
+    const validator = @import("validate.zig").Validator.init(
+        "role",
+        RoleValidator.validateImpl
+    );
+
+    try ini.validators.add("role", validator);
+
+    // 测试 user（通过 choices 和 role 校验）
+    try ini.set("role", "user");
+
+    // 测试 guest（通过 choices 和 role 校验）
+    try ini.set("role", "guest");
+
+    // 测试 admin（通过 choices 但失败 role 校验）
+    try std.testing.expectError(error.InvalidValue, ini.set("role", "admin"));
+
+    // 测试 yellow（失败 choices 校验）
+    try std.testing.expectError(error.InvalidValue, ini.set("role", "yellow"));
+}
+
+

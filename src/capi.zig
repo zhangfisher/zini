@@ -156,111 +156,40 @@ export fn zini_get(parser: ?*zini_t, key: [*c]const u8) [*c]const u8 {
     return value.ptr;
 }
 
-/// Get a global integer value
-export fn zini_get_int(parser: ?*zini_t, key: [*c]const u8, out: ?*i64) zini_error_t {
+/// Get a string value
+/// Returns null if key not found
+export fn zini_get_string(parser: ?*zini_t, key: [*c]const u8) [*c]const u8 {
+    if (parser == null or key == null) return null;
+    const ini_ptr: *Ini = @ptrCast(@alignCast(parser.?));
+    const key_slice = std.mem.span(key);
+    const value = ini_ptr.getString(key_slice) catch return null;
+    return value.ptr;
+}
+
+/// Get a number value (i64)
+export fn zini_get_number(parser: ?*zini_t, key: [*c]const u8, out: ?*i64) zini_error_t {
     if (parser == null or key == null or out == null) return .INVALID_FORMAT;
     const ini_ptr: *Ini = @ptrCast(@alignCast(parser.?));
     const key_slice = std.mem.span(key);
-    out.?.* = ini_ptr.getInt(key_slice) catch |err| return errorToCode(err);
+    out.?.* = ini_ptr.getNumber(key_slice) catch |err| return errorToCode(err);
     return .SUCCESS;
 }
 
-/// Get a global u8 value
-export fn zini_get_u8(parser: ?*zini_t, key: [*c]const u8, out: ?*u8) zini_error_t {
+/// Get a float value (f64)
+export fn zini_get_float(parser: ?*zini_t, key: [*c]const u8, out: ?*f64) zini_error_t {
     if (parser == null or key == null or out == null) return .INVALID_FORMAT;
     const ini_ptr: *Ini = @ptrCast(@alignCast(parser.?));
     const key_slice = std.mem.span(key);
-    out.?.* = ini_ptr.getU8(key_slice) catch |err| return errorToCode(err);
+    out.?.* = ini_ptr.getFloat(key_slice) catch |err| return errorToCode(err);
     return .SUCCESS;
 }
 
-/// Get a global u16 value
-export fn zini_get_u16(parser: ?*zini_t, key: [*c]const u8, out: ?*u16) zini_error_t {
+/// Get a boolean value
+export fn zini_get_boolean(parser: ?*zini_t, key: [*c]const u8, out: ?*bool) zini_error_t {
     if (parser == null or key == null or out == null) return .INVALID_FORMAT;
     const ini_ptr: *Ini = @ptrCast(@alignCast(parser.?));
     const key_slice = std.mem.span(key);
-    out.?.* = ini_ptr.getU16(key_slice) catch |err| return errorToCode(err);
-    return .SUCCESS;
-}
-
-/// Get a global u32 value
-export fn zini_get_u32(parser: ?*zini_t, key: [*c]const u8, out: ?*u32) zini_error_t {
-    if (parser == null or key == null or out == null) return .INVALID_FORMAT;
-    const ini_ptr: *Ini = @ptrCast(@alignCast(parser.?));
-    const key_slice = std.mem.span(key);
-    out.?.* = ini_ptr.getU32(key_slice) catch |err| return errorToCode(err);
-    return .SUCCESS;
-}
-
-/// Get a global u64 value
-export fn zini_get_u64(parser: ?*zini_t, key: [*c]const u8, out: ?*u64) zini_error_t {
-    if (parser == null or key == null or out == null) return .INVALID_FORMAT;
-    const ini_ptr: *Ini = @ptrCast(@alignCast(parser.?));
-    const key_slice = std.mem.span(key);
-    out.?.* = ini_ptr.getU64(key_slice) catch |err| return errorToCode(err);
-    return .SUCCESS;
-}
-
-/// Get a global i8 value
-export fn zini_get_i8(parser: ?*zini_t, key: [*c]const u8, out: ?*i8) zini_error_t {
-    if (parser == null or key == null or out == null) return .INVALID_FORMAT;
-    const ini_ptr: *Ini = @ptrCast(@alignCast(parser.?));
-    const key_slice = std.mem.span(key);
-    out.?.* = ini_ptr.getI8(key_slice) catch |err| return errorToCode(err);
-    return .SUCCESS;
-}
-
-/// Get a global i16 value
-export fn zini_get_i16(parser: ?*zini_t, key: [*c]const u8, out: ?*i16) zini_error_t {
-    if (parser == null or key == null or out == null) return .INVALID_FORMAT;
-    const ini_ptr: *Ini = @ptrCast(@alignCast(parser.?));
-    const key_slice = std.mem.span(key);
-    out.?.* = ini_ptr.getI16(key_slice) catch |err| return errorToCode(err);
-    return .SUCCESS;
-}
-
-/// Get a global i32 value
-export fn zini_get_i32(parser: ?*zini_t, key: [*c]const u8, out: ?*i32) zini_error_t {
-    if (parser == null or key == null or out == null) return .INVALID_FORMAT;
-    const ini_ptr: *Ini = @ptrCast(@alignCast(parser.?));
-    const key_slice = std.mem.span(key);
-    out.?.* = ini_ptr.getI32(key_slice) catch |err| return errorToCode(err);
-    return .SUCCESS;
-}
-
-/// Get a global i64 value
-export fn zini_get_i64(parser: ?*zini_t, key: [*c]const u8, out: ?*i64) zini_error_t {
-    if (parser == null or key == null or out == null) return .INVALID_FORMAT;
-    const ini_ptr: *Ini = @ptrCast(@alignCast(parser.?));
-    const key_slice = std.mem.span(key);
-    out.?.* = ini_ptr.getI64(key_slice) catch |err| return errorToCode(err);
-    return .SUCCESS;
-}
-
-/// Get a global f32 value
-export fn zini_get_f32(parser: ?*zini_t, key: [*c]const u8, out: ?*f32) zini_error_t {
-    if (parser == null or key == null or out == null) return .INVALID_FORMAT;
-    const ini_ptr: *Ini = @ptrCast(@alignCast(parser.?));
-    const key_slice = std.mem.span(key);
-    out.?.* = ini_ptr.getF32(key_slice) catch |err| return errorToCode(err);
-    return .SUCCESS;
-}
-
-/// Get a global f64 value
-export fn zini_get_f64(parser: ?*zini_t, key: [*c]const u8, out: ?*f64) zini_error_t {
-    if (parser == null or key == null or out == null) return .INVALID_FORMAT;
-    const ini_ptr: *Ini = @ptrCast(@alignCast(parser.?));
-    const key_slice = std.mem.span(key);
-    out.?.* = ini_ptr.getF64(key_slice) catch |err| return errorToCode(err);
-    return .SUCCESS;
-}
-
-/// Get a global boolean value
-export fn zini_get_bool(parser: ?*zini_t, key: [*c]const u8, out: ?*bool) zini_error_t {
-    if (parser == null or key == null or out == null) return .INVALID_FORMAT;
-    const ini_ptr: *Ini = @ptrCast(@alignCast(parser.?));
-    const key_slice = std.mem.span(key);
-    out.?.* = ini_ptr.getBool(key_slice) catch |err| return errorToCode(err);
+    out.?.* = ini_ptr.getBoolean(key_slice) catch |err| return errorToCode(err);
     return .SUCCESS;
 }
 

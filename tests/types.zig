@@ -29,7 +29,7 @@ pub fn main() !void {
 
         // 验证类型推断
         if (ini.getSchema("bool_true")) |entry| {
-            std.debug.print("  bool_true 类型: {s}\n", .{entry.datatype.typeName()});
+            std.debug.print("  bool_true 类型: {s}\n", .{entry.datatype.toTypeName()});
             try std.testing.expectEqual(DataType.bool, entry.datatype);
         }
 

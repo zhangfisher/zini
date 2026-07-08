@@ -112,8 +112,8 @@ pub fn main() !void {
         try config.loadFromString(original_content);
 
         std.debug.print("  原始配置：\n", .{});
-        std.debug.print("  count: {} (类型: {s})\n", .{ try config.getU8("count"), config.getSchema("count").?..datatype.typeName() orelse "unknown" });
-        std.debug.print("  port: {} (类型: {s})\n", .{ try config.getU16("port"), config.getSchema("port").?..datatype.typeName() orelse "unknown" });
+        std.debug.print("  count: {} (类型: {s})\n", .{ try config.getU8("count"), config.getSchema("count").?..datatype.toTypeName() orelse "unknown" });
+        std.debug.print("  port: {} (类型: {s})\n", .{ try config.getU16("port"), config.getSchema("port").?..datatype.toTypeName() orelse "unknown" });
 
         // 使用类型标注更新值
         try config.set("count:u8", "200");

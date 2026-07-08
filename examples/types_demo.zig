@@ -33,10 +33,10 @@ pub fn main() !void {
         const version_entry = config.getSchema("version").?;
         const name_entry = config.getSchema("name").?;
 
-        std.debug.print("debug = 'true'  -> 类型: {s}\n", .{debug_entry.datatype.typeName()});
-        std.debug.print("port = '8080'   -> 类型: {s}\n", .{port_entry.datatype.typeName()});
-        std.debug.print("version = '2.5' -> 类型: {s}\n", .{version_entry.datatype.typeName()});
-        std.debug.print("name = 'MyApp'  -> 类型: {s}\n", .{name_entry.datatype.typeName()});
+        std.debug.print("debug = 'true'  -> 类型: {s}\n", .{debug_entry.datatype.toTypeName()});
+        std.debug.print("port = '8080'   -> 类型: {s}\n", .{port_entry.datatype.toTypeName()});
+        std.debug.print("version = '2.5' -> 类型: {s}\n", .{version_entry.datatype.toTypeName()});
+        std.debug.print("name = 'MyApp'  -> 类型: {s}\n", .{name_entry.datatype.toTypeName()});
     }
 
     // 示例 2: 类型安全访问
