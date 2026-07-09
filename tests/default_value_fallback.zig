@@ -15,7 +15,7 @@ test "默认值回退：value 为空时使用 default" {
     defer schema.deinit(allocator);
     schema.default = try allocator.dupe(u8, "8080");
 
-    try ini.add("port", schema);
+    try ini.addItem("port", schema);
 
     // 测试：value 为空，应该返回 default
     const schema_ptr = ini.getSchema("port").?;
@@ -32,7 +32,7 @@ test "默认值回退：value 有值时优先使用 value" {
     defer schema.deinit(allocator);
     schema.default = try allocator.dupe(u8, "8080");
 
-    try ini.add("port", schema);
+    try ini.addItem("port", schema);
 
     const port = try ini.getI16("port");
     try std.testing.expectEqual(@as(i16, 9000), port);

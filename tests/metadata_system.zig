@@ -62,7 +62,7 @@ test "元数据写入和重新加载" {
     schema.default = try allocator.dupe(u8, "8080");
     schema.@"enum" = try allocator.dupe(u8, "8080,8081,8082");
 
-    try ini.add("port", schema);
+    try ini.addItem("port", schema);
 
     // add()会深拷贝，所以需要手动释放这些字段
     allocator.free(schema.title.?);
@@ -175,7 +175,7 @@ test "元数据写入：正确的顺序" {
     schema.default = try allocator.dupe(u8, "localhost");
     schema.@"enum" = try allocator.dupe(u8, "localhost,127.0.0.1");
 
-    try ini.add("db_host", schema);
+    try ini.addItem("db_host", schema);
 
     // add()会深拷贝，所以需要手动释放这些字段
     allocator.free(schema.description.?);

@@ -22,27 +22,27 @@ test "datatype consistency on update" {
     schema.datatype = .int;
 
     // 添加到 Ini 中
-    try ini.add("port", schema);
+    try ini.addItem("port", schema);
 
     // 验证初始类型
-    const initial_datatype = ini.schemas.get("port").?.datatype;
+    const initial_datatype = ini.items.get("port").?.datatype;
     try testing.expect(initial_datatype == .int); // 应该是整数类型
 
     // 现在用 set 方法更新值（传入一个看起来像数字的字符串）
     try ini.set("port", "9000");
 
     // 验证 datatype 仍然保持为 int 类型
-    const updated_datatype = ini.schemas.get("port").?.datatype;
+    const updated_datatype = ini.items.get("port").?.datatype;
     try testing.expect(updated_datatype == .int); // 应该仍然是整数类型！
 
     // 验证值确实更新了
-    const updated_value = ini.schemas.get("port").?.value;
+    const updated_value = ini.items.get("port").?.value;
     try testing.expectEqualStrings("9000", updated_value);
 
     std.debug.print("  ✓ datatype 一致性测试通过：更新后类型保持不变\n", .{});
 }
 
-test "datatype inference on new schema creation" {
+test "datatype inference on new item creation" {
     const allocator = std.testing.allocator;
 
     var ini = Ini.init(allocator);
@@ -51,9 +51,9 @@ test "datatype inference on new schema creation" {
     // 创建新的配置项（不存在的键）
     try ini.set("count", "123");
 
-    // 验证新创建的 Schema 正确推断类型
-    const new_schema = ini.schemas.get("count").?;
-    try testing.expect(new_schema.datatype == .int); // 应该推断为整数类型
+    // 验证新创建的 Item 正确推断类型
+    const new_item = ini.items.get("count").?;
+    try testing.expect(new_item.datatype == .int); // 应该推断为整数类型
 
     std.debug.print("  ✓ 新 Schema 类型推断测试通过\n", .{});
 }
@@ -76,23 +76,23 @@ test "update preserves title and description" {
     schema.description = try allocator.dupe(u8, "Enable debug logging");
     defer allocator.free(schema.description.?);
 
-    try ini.add("debug", schema);
+    try ini.addItem("debug", schema);
 
     // 验证初始 metadata
-    const initial_schema = ini.schemas.get("debug").?;
-    try testing.expect(initial_schema.title != null);
-    try testing.expect(initial_schema.description != null);
+    const initial_item = ini.items.get("debug").?;
+    try testing.expect(initial_item.title != null);
+    try testing.expect(initial_item.description != null);
 
     // 更新值
     try ini.set("debug", "true");
 
     // 验证 title 和 description 被保留
-    const updated_schema = ini.schemas.get("debug").?;
-    try testing.expect(updated_schema.title != null);
-    try testing.expect(updated_schema.description != null);
-    try testing.expectEqualStrings("Debug Mode", updated_schema.title.?);
-    try testing.expectEqualStrings("Enable debug logging", updated_schema.description.?);
-    try testing.expectEqualStrings("true", updated_schema.value);
+    const updated_item = ini.items.get("debug").?;
+    try testing.expect(updated_item.title != null);
+    try testing.expect(updated_item.description != null);
+    try testing.expectEqualStrings("Debug Mode", updated_item.title.?);
+    try testing.expectEqualStrings("Enable debug logging", updated_item.description.?);
+    try testing.expectEqualStrings("true", updated_item.value);
 
     std.debug.print("  ✓ metadata 保留测试通过\n", .{});
 }

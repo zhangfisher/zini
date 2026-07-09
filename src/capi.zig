@@ -4,6 +4,10 @@
 
 const std = @import("std");
 
+// 线本地存储用于 choices 指针数组转换
+threadlocal var choices_buffer: [256][*c]const u8 = undefined;
+threadlocal var choices_buffer_len: usize = 0;
+
 // 如果模块系统可用，使用导入的模块，否则直接导入
 const Ini = if (@hasDecl(@import("root"), "zini"))
     @import("root").zini.Ini
@@ -23,13 +27,17 @@ else
 /// Opaque pointer to Ini structure
 pub const zini_t = opaque {};
 
-/// Schema structure for C API
-pub const zini_schema_t = extern struct {
+/// Item structure for C API
+pub const zini_item_t = extern struct {
     key: [*c]const u8,
     value: [*c]const u8,
     datatype: DataType,
+    flags: u32,
     title: [*c]const u8,
     description: [*c]const u8,
+    default: [*c]const u8,
+    choices_count: usize,
+    choices: [*c]const [*c]const u8,
 };
 
 /// IniOptions for C API
@@ -203,21 +211,21 @@ export fn zini_set(parser: ?*zini_t, key: [*c]const u8, value: [*c]const u8) zin
     return .SUCCESS;
 }
 
-/// Check if a key exists (supports <section>.<key> syntax)
-export fn zini_has(parser: ?*zini_t, key: [*c]const u8) bool {
+/// Check if a key or section exists (supports <section>.<key> syntax)
+export fn zini_has_item(parser: ?*zini_t, key: [*c]const u8) bool {
     if (parser == null or key == null) return false;
     const ini_ptr: *Ini = @ptrCast(@alignCast(parser.?));
     const key_slice = std.mem.span(key);
-    return ini_ptr.has(key_slice);
+    return ini_ptr.hasItem(key_slice);
 }
 
-/// Remove a key (supports <section>.<key> syntax)
-/// Returns: true if removed, false if key not found
-export fn zini_remove(parser: ?*zini_t, key: [*c]const u8) bool {
+/// Remove a key or section (supports <section>.<key> syntax)
+/// Returns: true if removed, false if key/section not found
+export fn zini_remove_item(parser: ?*zini_t, key: [*c]const u8) bool {
     if (parser == null or key == null) return false;
     const ini_ptr: *Ini = @ptrCast(@alignCast(parser.?));
     const key_slice = std.mem.span(key);
-    return ini_ptr.remove(key_slice);
+    return ini_ptr.removeItem(key_slice);
 }
 
 /// Get error message for error code
@@ -239,21 +247,44 @@ export fn zini_error_string(err: zini_error_t) [*c]const u8 {
     };
 }
 
-/// Get Schema for a key (supports <section>.<key> syntax)
-/// Returns: Schema structure containing key, value, datatype, title, description
-/// Note: The returned Schema is valid until the next operation on the parser
-export fn zini_get_schema(parser: ?*zini_t, key: [*c]const u8, schema: ?*zini_schema_t) zini_error_t {
-    if (parser == null or key == null or schema == null) return .INVALID_FORMAT;
+/// Get Item for a key (supports <section>.<key> syntax)
+/// Returns: Item structure containing key, value, datatype, flags, title, description, default, choices
+/// Note: The returned Item and its pointers are valid until the next operation on the parser
+/// Warning: The choices pointer array is only valid until the next zini_get_item call
+export fn zini_get_item(parser: ?*zini_t, key: [*c]const u8, item: ?*zini_item_t) zini_error_t {
+    if (parser == null or key == null or item == null) return .INVALID_FORMAT;
     const ini_ptr: *Ini = @ptrCast(@alignCast(parser.?));
     const key_slice = std.mem.span(key);
 
-    const ini_schema = ini_ptr.getSchema(key_slice) orelse return .KEY_NOT_FOUND;
+    const ini_item = ini_ptr.getItem(key_slice) orelse return .KEY_NOT_FOUND;
 
-    schema.?.*.key = if (ini_schema.key.len > 0) ini_schema.key.ptr else "";
-    schema.?.*.value = if (ini_schema.value.len > 0) ini_schema.value.ptr else "";
-    schema.?.*.datatype = ini_schema.datatype;
-    schema.?.*.title = if (ini_schema.title) |title| title.ptr else null;
-    schema.?.*.description = if (ini_schema.description) |desc| desc.ptr else null;
+    item.?.*.key = if (ini_item.key.len > 0) ini_item.key.ptr else "";
+    item.?.*.value = if (ini_item.value.len > 0) ini_item.value.ptr else "";
+    item.?.*.datatype = ini_item.datatype;
+    item.?.*.flags = @intFromEnum(ini_item.flags);
+    item.?.*.title = if (ini_item.title) |title| title.ptr else null;
+    item.?.*.description = if (ini_item.description) |desc| desc.ptr else null;
+    item.?.*.default = if (ini_item.default) |def| def.ptr else null;
+
+    // 处理 choices 数组
+    if (ini_item.choices) |choices| {
+        item.?.*.choices_count = choices.len;
+        if (choices.len > 0) {
+            // 将 Zig 字符串数组转换为 C 字符串指针数组
+            // 限制最大数量以防止缓冲区溢出
+            const copy_len = @min(choices.len, choices_buffer.len);
+            choices_buffer_len = copy_len;
+            for (choices[0..copy_len], 0..) |choice, i| {
+                choices_buffer[i] = if (choice.len > 0) choice.ptr else "";
+            }
+            item.?.*.choices = &choices_buffer;
+        } else {
+            item.?.*.choices = null;
+        }
+    } else {
+        item.?.*.choices_count = 0;
+        item.?.*.choices = null;
+    }
 
     return .SUCCESS;
 }

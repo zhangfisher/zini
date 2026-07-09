@@ -116,7 +116,7 @@ pub fn main() !void {
         std.debug.print("section3 存在: {}\n", .{config.has("section3")});
 
         // 删除 section（使用新的 remove 方法）
-        _ = config.remove("section1");
+        _ = config.removeItem("section1");
         std.debug.print("删除后 section1 存在: {}\n", .{config.has("section1")});
     }
 

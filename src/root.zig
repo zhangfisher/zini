@@ -21,7 +21,7 @@ pub const ini = @import("ini.zig");
 
 // 重新导出主要类型以便用户直接使用
 pub const Ini = ini.Ini;
-pub const Schema = ini.Schema;
+pub const Item = ini.Item;
 pub const Error = ini.Error;
 pub const IniOptions = ini.IniOptions;
 
@@ -29,7 +29,7 @@ test "root module test" {
     // 简单的测试确保模块可以正确导入
     const testing = std.testing;
     _ = Ini;
-    _ = Schema;
+    _ = Item;
     _ = Error;
     _ = DataType;
     try testing.expect(true);

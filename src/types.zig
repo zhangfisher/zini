@@ -5,8 +5,8 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-/// Schema 标志位枚举
-pub const SchemFlags = enum(u8) {
+/// Item 标志位枚举
+pub const ItemFlags = enum(u8) {
     /// 未指定标志
     none = 0,
     // 未来可以添加其他标志，如hasValidation, hasDescription等

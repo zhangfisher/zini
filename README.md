@@ -12,7 +12,9 @@
 - **🚀 简洁 API** - 只需 4 个 getter 方法，学习成本极低
 - **✨ 智能推断** - 根据值内容自动识别类型，无需手动标注
 - **📝 多行字符串** - 支持 Markdown 风格的多行文本
-- **🏷️ 元数据支持** - 支持 title、description、default、choices
+- **🏷️ 丰富元数据** - 支持 title、description、default、choices、enum
+- **🔄 配置重置** - 支持 reset() 方法一键恢复默认值
+- **🎯 精确操作** - 支持 getSection() 方法操作特定 section
 - **💾 内存优化** - 可选的描述加载，节省内存占用
 - **🔧 完整 INI 支持** - Sections、全局键值对、注释
 - **🛡️ 内存安全** - 完善的内存管理，无泄漏
@@ -30,22 +32,21 @@
 - **操作系统**: Windows, Linux, macOS
 - **架构**: x86_64, ARM64, ARM32
 
-### 通过 Zig 包管理器安装（推荐）
+### 构建和测试
 
-**在你的项目 `build.zig.zon` 中添加依赖：**
+**运行测试：**
+```bash
+# 直接运行测试（推荐）
+zig test src/ini.zig
 
-```zig
-.dependencies = .{
-    .zini = .{
-        .url = "https://github.com/zhangfisher/zini/archive/master.tar.gz",
-        .hash = "1220...", // 使用 zig build 命令获取正确的 hash
-    }
-}
+# 或通过构建系统
+zig build test
 ```
 
-**在你的项目 `build.zig` 中导入模块：**
-
-```zig
+**查看所有可用的构建命令：**
+```bash
+zig build -h
+```
 const zini = b.dependency("zini", .{
     .target = target,
     .optimize = optimize,
@@ -289,14 +290,15 @@ std.debug.print("Terms:\n{s}\n", .{terms});
 
 ### 元数据支持
 
-zini 支持丰富的元数据功能，可以为配置项添加标题、描述、默认值和选择项。
+zini 支持丰富的元数据功能，可以为配置项添加标题、描述、默认值、选择项、枚举值和显示顺序。
 
 **支持的元数据：**
 
 - **普通注释** - 配置项的描述信息（需要启用描述加载）
 - **`@title`** - 配置项的标题
-- **`@default`** - 配置项的默认值
+- **`@default`** - 配置项的默认值（用于 reset() 方法）
 - **`@choices`** - 配置项的可选值列表（逗号分隔）
+- **`@enum`** - 配置项的枚举值列表（逗号分隔）
 
 **INI 文件示例：**
 
@@ -312,6 +314,12 @@ timeout = 60
 # @title 监听端口
 # @default 8080
 port = 9000
+
+# 数据库主机地址
+# @title 数据库主机
+# @default localhost
+# @choices localhost,127.0.0.1,db.example.com
+db_host = localhost
 
 # 启用调试模式
 # @title 调试模式
@@ -582,6 +590,19 @@ pub fn save(self: *Ini, path: []const u8) !void
 pub fn saveToString(self: *Ini, allocator: Allocator) ![]const u8
 ```
 
+### 高级操作 API
+
+```zig
+/// 重置所有配置项为默认值
+/// 遍历所有全局 schemas 和 sections 中的 schemas，
+/// 如果 schema.default 不为 null，则将 default 值复制到 value
+pub fn reset(self: *Ini) !void
+
+/// 获取指定 section 的 Ini 对象
+/// 返回 section 的指针，如果不存在则返回 null
+pub fn getSection(self: *Ini, section_name: []const u8) ?*Ini
+```
+
 ### DataType 枚举
 
 ```zig
@@ -735,6 +756,29 @@ pub fn main() !void {
     
     std.debug.print("配置已更新，共 {} 字节\n", .{updated_config.len});
 
+    // 7. 配置重置功能
+    std.debug.print("\n=== 配置重置功能 ===\n", .{});
+    
+    // 重置所有配置为默认值
+    try ini.reset();
+    
+    std.debug.print("配置已重置为默认值\n", .{});
+    std.debug.print("port: {} (默认值)\n", .{try ini.getNumber("port")});
+    std.debug.print("database.timeout: {} (默认值)\n", .{try ini.getNumber("database.timeout")});
+
+    // 8. 操作特定 section
+    std.debug.print("\n=== 操作特定 Section ===\n", .{});
+    
+    // 获取 database section 并重置
+    if (ini.getSection("database")) |db_section| {
+        try db_section.reset();
+        std.debug.print("database section 已重置\n", .{});
+    }
+    
+    // 修改特定 section 的配置
+    try ini.set("database.host", "db.example.com");
+    std.debug.print("database.host 已更新\n", .{});
+
     std.debug.print("\n=== 配置加载成功！===\n", .{});
 }
 ```
@@ -789,7 +833,127 @@ The {{app_name}} Team
 === 保存配置 ===
 配置已更新，共 456 字节
 
+=== 配置重置功能 ===
+配置已重置为默认值
+port: 8080 (默认值)
+database.timeout: 30 (默认值)
+
+=== 操作特定 Section ===
+database section 已重置
+database.host 已更新
+
 === 配置加载成功！===
+```
+
+### 配置重置功能
+
+zini 提供了强大的配置重置功能，可以快速恢复所有配置为默认值。
+
+**基本用法：**
+
+```zig
+const std = @import("std");
+const Ini = @import("zini").Ini;
+
+pub fn main() !void {
+    const allocator = std.heap.page_allocator;
+    
+    var ini = Ini.init(allocator);
+    defer ini.deinit();
+
+    const content =
+        \\# @default 8080
+        \\port = 9000
+        \\
+        \\# @default localhost
+        \\host = remotehost
+        \\
+        \\# @default true
+        \\debug = false
+    ;
+
+    try ini.loadFromString(content);
+
+    // 当前值
+    std.debug.print("重置前:\n", .{});
+    std.debug.print("  port: {}\n", .{try ini.getNumber("port")});
+    std.debug.print("  host: {s}\n", .{try ini.getString("host")});
+    std.debug.print("  debug: {}\n", .{try ini.getBoolean("debug")});
+
+    // 重置所有配置为默认值
+    try ini.reset();
+
+    // 默认值
+    std.debug.print("重置后:\n", .{});
+    std.debug.print("  port: {}\n", .{try ini.getNumber("port)});
+    std.debug.print("  host: {s}\n", .{try ini.getString("host")});
+    std.debug.print("  debug: {}\n", .{try ini.getBoolean("debug")});
+}
+```
+
+**输出：**
+```
+重置前:
+  port: 9000
+  host: remotehost
+  debug: false
+
+重置后:
+  port: 8080
+  host: localhost
+  debug: true
+```
+
+### Section 操作
+
+支持对特定 section 进行精确操作。
+
+**基本用法：**
+
+```zig
+const std = @import("std");
+const Ini = @import("zini").Ini;
+
+pub fn main() !void {
+    const allocator = std.heap.page_allocator;
+    
+    var ini = Ini.init(allocator);
+    defer ini.deinit();
+
+    const content =
+        \\[database]
+        \\# @default localhost
+        \\host = remotehost
+        \\# @default 5432
+        \\port = 3306
+        \\
+        \\[server]
+        \\# @default 8080
+        \\port = 9000
+    ;
+
+    try ini.loadFromString(content);
+
+    // 只重置 database section
+    if (ini.getSection("database")) |db_section| {
+        try db_section.reset();
+        std.debug.print("database section 已重置\n", .{});
+        std.debug.print("  database.host: {s}\n", .{try db_section.getString("host")});
+        std.debug.print("  database.port: {}\n", .{try db_section.getNumber("port")});
+    }
+
+    // server section 保持不变
+    const server_port = try ini.getNumber("server.port");
+    std.debug.print("server.port 保持不变: {}\n", .{server_port});
+}
+```
+
+**输出：**
+```
+database section 已重置
+  database.host: localhost
+  database.port: 5432
+server.port 保持不变: 9000
 ```
 
 ---

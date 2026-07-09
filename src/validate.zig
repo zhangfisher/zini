@@ -14,16 +14,16 @@ const Allocator = std.mem.Allocator;
 const string_mod = @import("string.zig");
 
 // 前向声明，避免循环依赖
-const Schema = @import("ini.zig").Schema;
+const Item = @import("ini.zig").Item;
 
 /// 校验器接口
 pub const Validator = struct {
     /// 校验器名称
     name: []const u8,
     /// 校验函数：返回 true 表示通过，false 表示失败
-    validate: *const fn (value: []const u8, schema: *const Schema) bool,
+    validate: *const fn (value: []const u8, item: *const Item) bool,
 
-    pub fn init(name: []const u8, validate_fn: *const fn (value: []const u8, schema: *const Schema) bool) Validator {
+    pub fn init(name: []const u8, validate_fn: *const fn (value: []const u8, item: *const Item) bool) Validator {
         return .{
             .name = name,
             .validate = validate_fn,
@@ -107,11 +107,11 @@ pub const ValidatorRegistry = struct {
     }
 
     /// 校验指定 key 的值
-    pub fn validate(self: *const Self, key: []const u8, value: []const u8, schema: *const Schema) bool {
+    pub fn validate(self: *const Self, key: []const u8, value: []const u8, item: *const Item) bool {
         // 先检查 "*" 校验器（对所有 key 都生效）
         if (self.validators.get("*")) |global_list| {
             for (global_list.items) |validator| {
-                if (!validator.validate(value, schema)) {
+                if (!validator.validate(value, item)) {
                     return false;
                 }
             }
@@ -120,7 +120,7 @@ pub const ValidatorRegistry = struct {
         // 再检查用户添加的特定 key 的校验器
         if (self.validators.get(key)) |list| {
             for (list.items) |validator| {
-                if (!validator.validate(value, schema)) {
+                if (!validator.validate(value, item)) {
                     return false;
                 }
             }
@@ -132,8 +132,8 @@ pub const ValidatorRegistry = struct {
 
 /// ChoiceValidator - 校验值是否在允许的 choices 中
 pub const ChoiceValidator = struct {
-    fn validateImpl(value: []const u8, schema: *const Schema) bool {
-        if (schema.choices) |choices| {
+    fn validateImpl(value: []const u8, item: *const Item) bool {
+        if (item.choices) |choices| {
             const trimmed = string_mod.trim(value);
             const idx = string_mod.find(choices, trimmed);
             return idx >= 0;
@@ -223,8 +223,8 @@ test "ValidatorRegistry - add and validate" {
 
     // 创建测试校验器
     const TestValidator = struct {
-        fn validateImpl(value: []const u8, schema: *const Schema) bool {
-            _ = schema;
+        fn validateImpl(value: []const u8, item: *const Item) bool {
+            _ = item;
             return std.mem.eql(u8, value, "ok");
         }
     };
@@ -232,13 +232,13 @@ test "ValidatorRegistry - add and validate" {
     const validator = Validator.init("test", TestValidator.validateImpl);
     try registry.add("test_key", validator);
 
-    // 创建测试 schema
-    var schema = try Schema.init(allocator, "test_key", "value");
-    defer schema.deinit(allocator);
+    // 创建测试 Item
+    var item = try Item.init(allocator, "test_key", "value");
+    defer item.deinit(allocator);
 
     // 校验测试
-    try std.testing.expect(registry.validate("test_key", "ok", &schema));
-    try std.testing.expect(!registry.validate("test_key", "not_ok", &schema));
+    try std.testing.expect(registry.validate("test_key", "ok", &item));
+    try std.testing.expect(!registry.validate("test_key", "not_ok", &item));
 }
 
 test "ValidatorRegistry - remove" {
@@ -249,8 +249,8 @@ test "ValidatorRegistry - remove" {
 
     // 添加校验器
     const TestValidator = struct {
-        fn validateImpl(value: []const u8, schema: *const Schema) bool {
-            _ = schema;
+        fn validateImpl(value: []const u8, item: *const Item) bool {
+            _ = item;
             return std.mem.eql(u8, value, "ok");
         }
     };
@@ -261,19 +261,19 @@ test "ValidatorRegistry - remove" {
     try registry.add("key", validator1);
     try registry.add("key", validator2);
 
-    var schema = try Schema.init(allocator, "key", "value");
-    defer schema.deinit(allocator);
+    var item = try Item.init(allocator, "key", "value");
+    defer item.deinit(allocator);
 
     // 初始状态：两个校验器都生效
-    try std.testing.expect(registry.validate("key", "ok", &schema));
+    try std.testing.expect(registry.validate("key", "ok", &item));
 
     // 移除特定校验器
     registry.remove("key", "test1");
-    try std.testing.expect(registry.validate("key", "ok", &schema));
+    try std.testing.expect(registry.validate("key", "ok", &item));
 
     // 移除所有校验器
     registry.remove("key", "");
-    try std.testing.expect(registry.validate("key", "any_value", &schema));
+    try std.testing.expect(registry.validate("key", "any_value", &item));
 }
 
 test "ValidatorRegistry - duplicate detection" {
@@ -284,8 +284,8 @@ test "ValidatorRegistry - duplicate detection" {
 
     // 添加同名校验器两次
     const TestValidator = struct {
-        fn validateImpl(value: []const u8, schema: *const Schema) bool {
-            _ = schema;
+        fn validateImpl(value: []const u8, item: *const Item) bool {
+            _ = item;
             _ = value;
             return true;
         }
@@ -295,8 +295,8 @@ test "ValidatorRegistry - duplicate detection" {
     try registry.add("key", validator);
     try registry.add("key", validator); // 同名，应该被忽略
 
-    var schema = try Schema.init(allocator, "key", "value");
-    defer schema.deinit(allocator);
+    var item = try Item.init(allocator, "key", "value");
+    defer item.deinit(allocator);
 
     // 只有一个校验器生效
     try std.testing.expectEqual(@as(usize, 1), registry.validators.get("key").?.items.len);

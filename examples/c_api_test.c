@@ -102,17 +102,17 @@ int main() {
 
     printf("\n");
 
-    // 测试 getSchema 功能
-    printf("3. 测试 getSchema 功能...\n");
-    zini_schema_t schema;
-    err = zini_get_schema(parser, "app_name", &schema);
+    // 测试 getItem 功能
+    printf("3. 测试 getItem 功能...\n");
+    zini_item_t item;
+    err = zini_get_item(parser, "app_name", &item);
     if (err == ZINI_SUCCESS) {
-        printf("✓ getSchema 测试:\n");
-        printf("  - key: %s\n", schema.key);
-        printf("  - value: %s\n", schema.value);
-        printf("  - datatype: %d\n", schema.datatype);
+        printf("✓ getItem 测试:\n");
+        printf("  - key: %s\n", item.key);
+        printf("  - value: %s\n", item.value);
+        printf("  - datatype: %d\n", item.datatype);
     } else {
-        printf("❌ getSchema 测试失败: %s\n", zini_error_string(err));
+        printf("❌ getItem 测试失败: %s\n", zini_error_string(err));
     }
 
     printf("\n");
@@ -121,22 +121,22 @@ int main() {
     printf("4. 测试 has 和 remove 功能...\n");
 
     // 测试 has
-    bool has_result = zini_has(parser, "app_name");
+    bool has_result = zini_has_item(parser, "app_name");
     printf("✓ has('app_name'): %s (预期: true)\n", has_result ? "true" : "false");
 
-    has_result = zini_has(parser, "nonexistent");
+    has_result = zini_has_item(parser, "nonexistent");
     printf("✓ has('nonexistent'): %s (预期: false)\n", has_result ? "true" : "false");
 
     // 测试 section.key 语法
-    has_result = zini_has(parser, "database.host");
+    has_result = zini_has_item(parser, "database.host");
     printf("✓ has('database.host'): %s (预期: true)\n", has_result ? "true" : "false");
 
-    // 测试 remove
-    bool removed = zini_remove(parser, "version");
-    printf("✓ remove('version'): %s (预期: true)\n", removed ? "true" : "false");
+    // 测试 removeItem
+    bool removed = zini_remove_item(parser, "version");
+    printf("✓ removeItem('version'): %s (预期: true)\n", removed ? "true" : "false");
 
-    has_result = zini_has(parser, "version");
-    printf("✓ has('version') after remove: %s (预期: false)\n", has_result ? "true" : "false");
+    has_result = zini_has_item(parser, "version");
+    printf("✓ has('version') after removeItem: %s (预期: false)\n", has_result ? "true" : "false");
 
     printf("\n");
 

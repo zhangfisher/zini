@@ -54,7 +54,7 @@ typedef enum {
 } zini_datatype_t;
 
 /**
- * @brief Schema structure for detailed value information
+ * @brief Item structure for detailed value information
  */
 typedef struct {
     const char* key;
@@ -62,7 +62,7 @@ typedef struct {
     zini_datatype_t datatype;
     const char* title;
     const char* description;
-} zini_schema_t;
+} zini_item_t;
 
 /**
  * @brief IniOptions structure
@@ -335,20 +335,20 @@ zini_error_t zini_set(zini_t* parser, const char* key, const char* value);
 zini_error_t zini_set_section(zini_t* parser, const char* section, const char* key, const char* value);
 
 /**
- * @brief Check if a key exists (supports <section>.<key> syntax)
+ * @brief Check if a key or section exists (supports <section>.<key> syntax)
  * @param parser Parser instance
- * @param key Key to check
- * @return true if key exists, false otherwise
+ * @param key Key or section name to check
+ * @return true if key/section exists, false otherwise
  */
-bool zini_has(zini_t* parser, const char* key);
+bool zini_has_item(zini_t* parser, const char* key);
 
 /**
- * @brief Remove a key (supports <section>.<key> syntax)
+ * @brief Remove a key or section (supports <section>.<key> syntax)
  * @param parser Parser instance
- * @param key Key to remove
+ * @param key Key or section name to remove
  * @return true if removed, false if not found
  */
-bool zini_remove(zini_t* parser, const char* key);
+bool zini_remove_item(zini_t* parser, const char* key);
 
 /**
  * @brief Check if a section exists
@@ -359,13 +359,13 @@ bool zini_remove(zini_t* parser, const char* key);
 bool zini_has_section(zini_t* parser, const char* section);
 
 /**
- * @brief Get Schema for a key (supports <section>.<key> syntax)
+ * @brief Get Item for a key (supports <section>.<key> syntax)
  * @param parser Parser instance
  * @param key Key to look up
- * @param schema Pointer to store the schema
+ * @param item Pointer to store the item
  * @return Error code (ZINI_SUCCESS on success, ZINI_KEY_NOT_FOUND if not found)
  */
-zini_error_t zini_get_schema(zini_t* parser, const char* key, zini_schema_t* schema);
+zini_error_t zini_get_item(zini_t* parser, const char* key, zini_item_t* item);
 
 /**
  * @brief Get error message for error code
