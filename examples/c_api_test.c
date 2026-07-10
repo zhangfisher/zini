@@ -1,13 +1,14 @@
-// C API 测试示例
+// C API 测试示例 - 使用4个基本getter方法
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 #include "zini.h"
 
 int main() {
     printf("=== ZINI C API 功能测试 ===\n\n");
 
-    // 测试新的类型获取函数
+    // 测试基本创建和加载
     printf("1. 测试基本创建和加载...\n");
     zini_t* parser = zini_new();
     if (!parser) {
@@ -24,11 +25,8 @@ int main() {
         "enabled = true\n"
         "port = 8080\n"
         "temperature = -5\n"
-        "score = -100\n"
-        "balance = -1000\n"
-        "timestamp = 1640000000\n"
-        "pi = 3.14159\n"
         "ratio = 1.5\n"
+        "pi = 3.14159\n"
         "\n"
         "[database]\n"
         "host = localhost\n"
@@ -43,61 +41,42 @@ int main() {
     }
     printf("✓ 字符串加载成功\n\n");
 
-    // 测试新的类型获取函数
-    printf("2. 测试新增的类型获取函数...\n");
+    // 测试4个基本getter方法
+    printf("2. 测试4个基本getter方法...\n");
 
-    // 测试 i8
-    int8_t temperature = 0;
-    err = zini_get_i8(parser, "temperature", &temperature);
-    if (err == ZINI_SUCCESS) {
-        printf("✓ i8 测试: temperature = %d (预期: -5)\n", temperature);
+    // 测试 getString
+    const char* app_name = zini_get_string(parser, "app_name");
+    if (app_name) {
+        printf("✓ getString: app_name = %s\n", app_name);
     } else {
-        printf("❌ i8 测试失败: %s\n", zini_error_string(err));
+        printf("❌ getString 失败\n");
     }
 
-    // 测试 i16
-    int16_t score = 0;
-    err = zini_get_i16(parser, "score", &score);
+    // 测试 getNumber (返回 i64)
+    int64_t port;
+    err = zini_get_number(parser, "port", &port);
     if (err == ZINI_SUCCESS) {
-        printf("✓ i16 测试: score = %d (预期: -100)\n", score);
+        printf("✓ getNumber: port = %lld (预期: 8080)\n", (long long)port);
     } else {
-        printf("❌ i16 测试失败: %s\n", zini_error_string(err));
+        printf("❌ getNumber 失败: %s\n", zini_error_string(err));
     }
 
-    // 测试 i32
-    int32_t balance = 0;
-    err = zini_get_i32(parser, "balance", &balance);
+    // 测试 getFloat (返回 f64)
+    double pi;
+    err = zini_get_float(parser, "pi", &pi);
     if (err == ZINI_SUCCESS) {
-        printf("✓ i32 测试: balance = %d (预期: -1000)\n", balance);
+        printf("✓ getFloat: pi = %.5f (预期: 3.14159)\n", pi);
     } else {
-        printf("❌ i32 测试失败: %s\n", zini_error_string(err));
+        printf("❌ getFloat 失败: %s\n", zini_error_string(err));
     }
 
-    // 测试 i64
-    int64_t timestamp = 0;
-    err = zini_get_i64(parser, "timestamp", &timestamp);
+    // 测试 getBoolean
+    bool enabled;
+    err = zini_get_boolean(parser, "enabled", &enabled);
     if (err == ZINI_SUCCESS) {
-        printf("✓ i64 测试: timestamp = %lld (预期: 1640000000)\n", (long long)timestamp);
+        printf("✓ getBoolean: enabled = %s (预期: true)\n", enabled ? "true" : "false");
     } else {
-        printf("❌ i64 测试失败: %s\n", zini_error_string(err));
-    }
-
-    // 测试 f32
-    float pi = 0.0f;
-    err = zini_get_f32(parser, "pi", &pi);
-    if (err == ZINI_SUCCESS) {
-        printf("✓ f32 测试: pi = %.5f (预期: 3.14159)\n", pi);
-    } else {
-        printf("❌ f32 测试失败: %s\n", zini_error_string(err));
-    }
-
-    // 测试 f64
-    double ratio = 0.0;
-    err = zini_get_f64(parser, "ratio", &ratio);
-    if (err == ZINI_SUCCESS) {
-        printf("✓ f64 测试: ratio = %.2f (预期: 1.50)\n", ratio);
-    } else {
-        printf("❌ f64 测试失败: %s\n", zini_error_string(err));
+        printf("❌ getBoolean 失败: %s\n", zini_error_string(err));
     }
 
     printf("\n");

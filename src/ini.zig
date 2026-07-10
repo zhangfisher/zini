@@ -72,6 +72,8 @@ pub const Item = struct {
     choices: ?[][]const u8 = null,
     /// 值转换器（用于配置文件和内部表示之间的转换）
     converter: ?*const Converter = null,
+    /// 验证器名称数组（指定该 Item 配置了哪些验证器）
+    validators: ?[][]const u8 = null,
 
     /// Create a new Item with automatic type inference
     pub fn init(allocator: Allocator, key: []const u8, value: []const u8) Allocator.Error!Item {
@@ -116,6 +118,10 @@ pub const Item = struct {
             for (items) |item| allocator.free(item);
             allocator.free(items);
         }
+        if (self.validators) |validator_names| {
+            for (validator_names) |name| allocator.free(name);
+            allocator.free(validator_names);
+        }
     }
 
     /// Free Item resources except key (used when key is owned by HashMap)
@@ -133,6 +139,10 @@ pub const Item = struct {
         if (self.choices) |items| {
             for (items) |item| allocator.free(item);
             allocator.free(items);
+        }
+        if (self.validators) |validator_names| {
+            for (validator_names) |name| allocator.free(name);
+            allocator.free(validator_names);
         }
     }
 
@@ -179,6 +189,69 @@ pub const Item = struct {
     /// Check if value matches expected type
     pub fn isType(self: *const Item, expected: DataType) bool {
         return self.datatype == expected;
+    }
+
+    /// 为 Item 添加验证器名称（自动初始化 validators 数组）
+    /// 使用全局 C allocator，无需传递 allocator 参数
+    pub fn addValidator(self: *Item, name: []const u8) !void {
+        const allocator = std.heap.c_allocator;
+
+        // 自动初始化 validators 数组
+        if (self.validators == null) {
+            self.validators = try allocator.alloc([]const u8, 0);
+        }
+
+        // 添加新的验证器名称
+        const old_len = self.validators.?.len;
+        const new_validators = try allocator.realloc(self.validators.?, old_len + 1);
+        new_validators[old_len] = try allocator.dupe(u8, name);
+        self.validators = new_validators;
+    }
+
+    /// 从 Item 移除验证器名称
+    /// 使用全局 C allocator，无需传递 allocator 参数
+    pub fn removeValidator(self: *Item, name: []const u8) !void {
+        const allocator = std.heap.c_allocator;
+
+        if (self.validators == null) return;
+
+        const validator_names = self.validators.?;
+
+        // 查找要删除的验证器索引
+        const found_index = for (validator_names, 0..) |validator_name, i| {
+            if (std.mem.eql(u8, validator_name, name)) {
+                break i;
+            }
+        } else {
+            return; // 未找到，直接返回
+        };
+
+        // 释放要删除的验证器名称
+        allocator.free(validator_names[found_index]);
+
+        // 创建新数组，复制前后元素（跳过要删除的）
+        const new_len = validator_names.len - 1;
+        if (new_len > 0) {
+            const new_validators = try allocator.alloc([]const u8, new_len);
+
+            // 复制前面的元素
+            for (validator_names[0..found_index], 0..) |v, i| {
+                new_validators[i] = v;
+            }
+
+            // 复制后面的元素
+            for (validator_names[found_index + 1..], 0..) |v, i| {
+                new_validators[found_index + i] = v;
+            }
+
+            // 释放旧数组
+            allocator.free(validator_names);
+            self.validators = new_validators;
+        } else {
+            // 最后一个元素，清空数组
+            allocator.free(validator_names);
+            self.validators = null;
+        }
     }
 };
 
@@ -537,8 +610,7 @@ pub const Ini = struct {
         if (item.title) |title| try writeMetadataMark(allocator, buffer, "title", title);
         if (item.default) |def| try writeMetadataMark(allocator, buffer, "default", def);
         if (item.choices) |items| {
-            const validate_module = @import("validate.zig");
-            const choices_str = try validate_module.join(allocator, items, ",");
+            const choices_str = try string_mod.join(allocator, items, ",");
             defer allocator.free(choices_str);
             try writeMetadataMark(allocator, buffer, "choices", choices_str);
         }
@@ -615,13 +687,11 @@ pub const Ini = struct {
         return null;
     }
 
-    /// 校验指定 key 的值（私有方法）
-    fn validate(self: *const Ini, key: []const u8, value: []const u8) !void {
-        if (self.getItem(key)) |item| {
-            if (!self.validators.validate(key, value, item)) {
-                std.log.err("校验失败：key '{s}' 的值 '{s}' 不符合要求", .{ key, value });
-                return error.InvalidValue;
-            }
+    /// 校验指定 Item 的值（私有方法）
+    fn validate(self: *const Ini, item: *const Item) !void {
+        if (!self.validators.validate(item)) {
+            std.log.err("校验失败：key '{s}' 的值 '{s}' 不符合要求", .{ item.key, item.value });
+            return error.InvalidValue;
         }
     }
 
@@ -667,11 +737,24 @@ pub const Ini = struct {
                 try section_ini.set(parsed.key, value);
             },
             .global => |global_key| {
-                // 先校验再设置
-                try self.validate(global_key, value);
-
                 // Set in global items
                 if (self.items.getPtr(global_key)) |item| {
+                    // 先校验再设置（使用现有 item）
+                    // 创建临时值用于验证
+                    var temp_item = Item{
+                        .key = item.key,
+                        .value = value,
+                        .datatype = DataType.infer(value),
+                        .flags = item.flags,
+                        .title = item.title,
+                        .description = item.description,
+                        .default = item.default,
+                        .choices = item.choices,
+                        .converter = item.converter,
+                        .validators = item.validators,
+                    };
+                    try self.validate(&temp_item);
+
                     // 应用转换器（如果存在）
                     var final_value = value;
                     if (item.converter) |converter| {
@@ -699,6 +782,9 @@ pub const Ini = struct {
                         DataType.infer(final_value)
                     );
                     defer temp_item.deinit(self.allocator);
+
+                    // 先校验再设置（使用临时 item）
+                    try self.validate(&temp_item);
 
                     // 调用 addItem 统一处理添加逻辑
                     try self.addItem(global_key, temp_item);
@@ -813,6 +899,15 @@ pub const Ini = struct {
                         }
                         break :blk array_copy;
                     } else null,
+                    .converter = item.converter,
+                    .validators = if (item.validators) |names| blk: {
+                        var array_copy = try self.allocator.alloc([]const u8, names.len);
+                        errdefer self.allocator.free(array_copy);
+                        for (names, 0..) |elem, i| {
+                            array_copy[i] = try self.allocator.dupe(u8, elem);
+                        }
+                        break :blk array_copy;
+                    } else null,
                 };
 
                 // Put in HashMap - this creates the key copy
@@ -848,6 +943,15 @@ pub const Ini = struct {
                         var array_copy = try self.allocator.alloc([]const u8, items.len);
                         errdefer self.allocator.free(array_copy);
                         for (items, 0..) |elem, i| {
+                            array_copy[i] = try self.allocator.dupe(u8, elem);
+                        }
+                        break :blk array_copy;
+                    } else null,
+                    .converter = item.converter,
+                    .validators = if (item.validators) |names| blk: {
+                        var array_copy = try self.allocator.alloc([]const u8, names.len);
+                        errdefer self.allocator.free(array_copy);
+                        for (names, 0..) |elem, i| {
                             array_copy[i] = try self.allocator.dupe(u8, elem);
                         }
                         break :blk array_copy;
@@ -1042,7 +1146,7 @@ const Parser = struct {
             value = trimmed_multiline;
         } else {
             // 不是多行字符串，读取单行值
-            value = self.parseSingleLineValue();
+            value = try self.parseSingleLineValue();
 
             // 处理引号
             if (value.len >= 2 and string_mod.isQuote(value[0])) {
@@ -1108,12 +1212,12 @@ const Parser = struct {
     }
 
     /// 解析单行值（遇到换行符停止）
-    fn parseSingleLineValue(self: *Parser) []const u8 {
+    fn parseSingleLineValue(self: *Parser) Error![]const u8 {
         const value_start = self.pos;
         while (self.pos < self.content.len and self.content[self.pos] != '\n') {
             self.pos += 1;
         }
-        return extractValueWithoutComment(self.content[value_start..self.pos]);
+        return extractValueWithoutComment(self, self.content[value_start..self.pos]);
     }
 
     /// 检查是否遇到新的配置项（用于多行字符串容错）
@@ -1318,8 +1422,7 @@ const Parser = struct {
                 } else if (std.mem.eql(u8, name, "default")) {
                     item.default = try self.allocator.dupe(u8, value);
                 } else if (std.mem.eql(u8, name, "choices")) {
-                    const validate = @import("validate.zig");
-                    item.choices = try validate.split(self.allocator, value, ",");
+                    item.choices = try string_mod.split(self.allocator, value, ",");
                 }
                 // 其他未知标记被忽略
             } else {
@@ -1375,9 +1478,52 @@ const Parser = struct {
         }
     }
 
-    /// 提取值（不再支持行尾注释）
-    fn extractValueWithoutComment(s: []const u8) []const u8 {
-        return string_mod.trim(s);
+    /// 提取值，支持行尾注释分离
+    /// 识别并分离行尾注释（# 或 ;），返回值部分
+    /// 将行尾注释累积到 parser.pending_comments
+    fn extractValueWithoutComment(parser: *Parser, s: []const u8) Error![]const u8 {
+        // 1. Trim 右侧空白
+        const trimmed = string_mod.trim(s);
+
+        // 2. 查找未引用的注释符（# 或 ;）
+        var comment_start: ?usize = null;
+        var in_quote = false;
+        var quote_char: u8 = undefined;
+
+        for (trimmed, 0..) |c, i| {
+            if (c == '"' or c == '\'') {
+                if (!in_quote) {
+                    in_quote = true;
+                    quote_char = c;
+                } else if (c == quote_char) {
+                    in_quote = false;
+                }
+            } else if (!in_quote and (c == '#' or c == ';')) {
+                comment_start = i;
+                break;
+            }
+        }
+
+        // 3. 如果找到注释符
+        if (comment_start) |start| {
+            // 提取注释内容（跳过注释符）
+            const comment_raw = trimmed[start + 1 ..];
+            const comment_trimmed = string_mod.trim(comment_raw);
+
+            // 将注释累积到 pending_comments
+            if (comment_trimmed.len > 0) {
+                try parser.pending_comments.append(
+                    parser.allocator,
+                    try parser.allocator.dupe(u8, comment_trimmed)
+                );
+            }
+
+            // 返回值部分（注释符之前的内容）
+            return string_mod.trim(trimmed[0..start]);
+        }
+
+        // 4. 没有找到注释符，返回整个字符串
+        return trimmed;
     }
 };
 
@@ -1655,13 +1801,16 @@ test "添加自定义校验器" {
         }
     };
 
-    const validator = @import("validate.zig").Validator.init("range", RangeValidator.validateImpl);
+    // 添加校验器到注册表
+    try ini.validators.add("port_range", RangeValidator.validateImpl);
 
-    // 添加校验器到 port 键
-    try ini.validators.add("port", validator);
-
-    // 先创建一个 port 键
+    // 先创建一个 port 键，并指定验证器
     try ini.set("port", "8080");
+    if (ini.items.getPtr("port")) |item| {
+        const validator_names = try allocator.alloc([]const u8, 1);
+        validator_names[0] = try allocator.dupe(u8, "port_range");
+        item.validators = validator_names;
+    }
 
     // 测试有效值
     try ini.set("port", "8080");
@@ -1684,26 +1833,41 @@ test "validators API - add 和 remove" {
         }
     };
 
-    const validator1 = @import("validate.zig").Validator.init("test1", TestValidator.validateImpl);
-    const validator2 = @import("validate.zig").Validator.init("test2", TestValidator.validateImpl);
+    // 添加校验器（直接传递函数指针）
+    try ini.validators.add("test1", TestValidator.validateImpl);
+    try ini.validators.add("test2", TestValidator.validateImpl);
 
-    // 添加校验器
-    try ini.validators.add("key", validator1);
-    try ini.validators.add("key", validator2);
-
-    // 创建测试键
+    // 创建测试键，并指定验证器
     try ini.set("key", "ok");
+    if (ini.items.getPtr("key")) |item| {
+        const validator_names = try allocator.alloc([]const u8, 2);
+        validator_names[0] = try allocator.dupe(u8, "test1");
+        validator_names[1] = try allocator.dupe(u8, "test2");
+        item.validators = validator_names;
+    }
 
     // 测试两个校验器都生效
     try std.testing.expectEqualStrings("ok", try ini.get("key"));
 
     // 移除特定校验器
-    ini.validators.remove("key", "test1");
-    try ini.set("key", "ok"); // 应该仍然有效
+    ini.validators.remove("test1");
+    try std.testing.expectEqualStrings("ok", try ini.get("key"));
 
-    // 移除所有校验器
-    ini.validators.remove("key", "");
-    try ini.set("key", "any_value"); // 现在应该接受任何值
+    // 移除另一个校验器
+    ini.validators.remove("test2");
+    try std.testing.expectEqualStrings("ok", try ini.get("key"));
+
+    // 清空 item 的 validators，这样就不会有命名验证器生效
+    if (ini.items.getPtr("key")) |item| {
+        if (item.validators) |validator_names| {
+            for (validator_names) |name| allocator.free(name);
+            allocator.free(validator_names);
+            item.validators = null;
+        }
+    }
+
+    // 现在应该接受任何值（只有全局 choice 验证器，没有 choices 限制）
+    try ini.set("key", "any_value"); // 应该成功
 }
 
 test "choices 校验器 + 自定义校验器组合" {
@@ -1727,9 +1891,15 @@ test "choices 校验器 + 自定义校验器组合" {
         }
     };
 
-    const validator = @import("validate.zig").Validator.init("role", RoleValidator.validateImpl);
+    // 添加校验器（直接传递函数指针）
+    try ini.validators.add("role_restrict", RoleValidator.validateImpl);
 
-    try ini.validators.add("role", validator);
+    // 为 role Item 指定验证器
+    if (ini.items.getPtr("role")) |item| {
+        const validator_names = try allocator.alloc([]const u8, 1);
+        validator_names[0] = try allocator.dupe(u8, "role_restrict");
+        item.validators = validator_names;
+    }
 
     // 测试 user（通过 choices 和 role 校验）
     try ini.set("role", "user");
@@ -1800,4 +1970,389 @@ test "basic converter functionality" {
     try std.testing.expectEqualStrings("4", value);
 
     std.debug.print("  ✓ 转换器基本功能测试通过\n", .{});
+}
+
+test "Item.addValidator - 自动初始化" {
+    // 使用 C allocator 来初始化 Item，与 addValidator/removeValidator 保持一致
+    const allocator = std.heap.c_allocator;
+    var item = try Item.init(allocator, "port", "8080");
+    defer item.deinit(allocator);
+
+    // 验证初始状态
+    try std.testing.expect(item.validators == null);
+
+    // 添加验证器（使用全局 C allocator，无需传递 allocator）
+    try item.addValidator("port_range");
+
+    // 验证自动初始化
+    try std.testing.expect(item.validators != null);
+    try std.testing.expectEqual(@as(usize, 1), item.validators.?.len);
+    try std.testing.expectEqualStrings("port_range", item.validators.?[0]);
+
+    std.debug.print("  ✓ Item.addValidator 自动初始化测试通过\n", .{});
+}
+
+test "Item.addValidator - 多个验证器" {
+    // 使用 C allocator 来初始化 Item，与 addValidator/removeValidator 保持一致
+    const allocator = std.heap.c_allocator;
+    var item = try Item.init(allocator, "port", "8080");
+    defer item.deinit(allocator);
+
+    // 添加多个验证器
+    try item.addValidator("port_range");
+    try item.addValidator("positive");
+    try item.addValidator("custom");
+
+    // 验证结果
+    try std.testing.expectEqual(@as(usize, 3), item.validators.?.len);
+    try std.testing.expectEqualStrings("port_range", item.validators.?[0]);
+    try std.testing.expectEqualStrings("positive", item.validators.?[1]);
+    try std.testing.expectEqualStrings("custom", item.validators.?[2]);
+
+    std.debug.print("  ✓ Item.addValidator 多个验证器测试通过\n", .{});
+}
+
+test "Item.removeValidator - 移除验证器" {
+    // 使用 C allocator 来初始化 Item，与 addValidator/removeValidator 保持一致
+    const allocator = std.heap.c_allocator;
+    var item = try Item.init(allocator, "port", "8080");
+    defer item.deinit(allocator);
+
+    // 添加两个验证器
+    try item.addValidator("port_range");
+    try item.addValidator("positive");
+
+    // 移除一个
+    try item.removeValidator("port_range");
+
+    // 验证结果
+    try std.testing.expectEqual(@as(usize, 1), item.validators.?.len);
+    try std.testing.expectEqualStrings("positive", item.validators.?[0]);
+
+    std.debug.print("  ✓ Item.removeValidator 移除验证器测试通过\n", .{});
+}
+
+test "Item.removeValidator - 移除最后一个验证器" {
+    // 使用 C allocator 来初始化 Item，与 addValidator/removeValidator 保持一致
+    const allocator = std.heap.c_allocator;
+    var item = try Item.init(allocator, "port", "8080");
+    defer item.deinit(allocator);
+
+    // 添加一个验证器
+    try item.addValidator("port_range");
+
+    // 移除它
+    try item.removeValidator("port_range");
+
+    // 验证结果（应该清空）
+    try std.testing.expect(item.validators == null);
+
+    std.debug.print("  ✓ Item.removeValidator 移除最后一个验证器测试通过\n", .{});
+}
+
+test "Item.removeValidator - 移除不存在的验证器" {
+    // 使用 C allocator 来初始化 Item，与 addValidator/removeValidator 保持一致
+    const allocator = std.heap.c_allocator;
+    var item = try Item.init(allocator, "port", "8080");
+    defer item.deinit(allocator);
+
+    // 添加验证器
+    try item.addValidator("port_range");
+
+    // 尝试移除不存在的验证器（应该静默成功，不抛出错误）
+    try item.removeValidator("nonexistent");
+
+    // 验证原验证器仍然存在
+    try std.testing.expectEqual(@as(usize, 1), item.validators.?.len);
+    try std.testing.expectEqualStrings("port_range", item.validators.?[0]);
+
+    std.debug.print("  ✓ Item.removeValidator 移除不存在的验证器测试通过\n", .{});
+}
+
+test "Item.addValidator - 内存安全测试" {
+    // 使用 C allocator 来初始化 Item，与 addValidator/removeValidator 保持一致
+    const allocator = std.heap.c_allocator;
+    var item = try Item.init(allocator, "port", "8080");
+    defer item.deinit(allocator);
+
+    // 多次添加和移除
+    try item.addValidator("v1");
+    try item.addValidator("v2");
+    try item.removeValidator("v1");
+    try item.addValidator("v3");
+
+    // 验证内存正确管理
+    try std.testing.expectEqual(@as(usize, 2), item.validators.?.len);
+    try std.testing.expectEqualStrings("v2", item.validators.?[0]);
+    try std.testing.expectEqualStrings("v3", item.validators.?[1]);
+
+    std.debug.print("  ✓ Item.addValidator 内存安全测试通过\n", .{});
+}
+
+test "Item.addValidator - 完整使用流程" {
+    // 使用 C allocator 来初始化 Ini，与 addValidator/removeValidator 保持一致
+    const allocator = std.heap.c_allocator;
+    var ini = Ini.init(allocator);
+    defer ini.deinit();
+
+    // 创建测试验证器
+    const PortValidator = struct {
+        fn validateImpl(value: []const u8, item: *const Item) bool {
+            _ = item;
+            const num = std.fmt.parseInt(u64, value, 10) catch return false;
+            return num >= 1024 and num <= 65535;
+        }
+    };
+
+    // 注册验证器
+    try ini.validators.add("port_range", PortValidator.validateImpl);
+
+    // 设置值并使用便捷方法添加验证器
+    try ini.set("port", "8080");
+    if (ini.items.getPtr("port")) |item| {
+        try item.addValidator("port_range"); // 使用新的便捷方法
+    }
+
+    // 验证验证器生效
+    const port_item = ini.items.get("port").?;
+    try std.testing.expectEqual(@as(usize, 1), port_item.validators.?.len);
+    try std.testing.expectEqualStrings("port_range", port_item.validators.?[0]);
+
+    // 移除验证器
+    if (ini.items.getPtr("port")) |item| {
+        try item.removeValidator("port_range");
+    }
+
+    // 验证移除后可以设置任何值
+    try ini.set("port", "100"); // 应该成功（验证器已移除）
+
+    std.debug.print("  ✓ Item.addValidator 完整使用流程测试通过\n", .{});
+}
+
+// ==================== 行尾注释测试 ====================
+
+test "行尾注释 - 基本功能" {
+    const allocator = std.testing.allocator;
+    var ini = Ini.init(allocator);
+    defer ini.deinit();
+
+    const content =
+        \\port=8080      # 端口
+        \\host=localhost    ;主机地址
+        \\debug=true          # 调试模式
+    ;
+
+    try ini.loadFromString(content);
+
+    // 验证值正确解析（不含注释）
+    try std.testing.expectEqualStrings("8080", try ini.get("port"));
+    try std.testing.expectEqualStrings("localhost", try ini.get("host"));
+    try std.testing.expectEqualStrings("true", try ini.get("debug"));
+}
+
+test "行尾注释 - 注释符前后空格" {
+    const allocator = std.testing.allocator;
+    var ini = Ini.init(allocator);
+    defer ini.deinit();
+
+    const content =
+        \\port=8080      #端口
+        \\host=localhost    #    主机地址
+        \\debug=true#调试模式
+    ;
+
+    try ini.loadFromString(content);
+
+    // 验证值正确提取
+    try std.testing.expectEqualStrings("8080", try ini.get("port"));
+    try std.testing.expectEqualStrings("localhost", try ini.get("host"));
+    try std.testing.expectEqualStrings("true", try ini.get("debug"));
+}
+
+test "行尾注释 - 注释中的元数据标记" {
+    const allocator = std.testing.allocator;
+    var ini = Ini.initWithOptions(allocator, IniOptions.withDescription());
+    defer ini.deinit();
+
+    const content =
+        \\port=8080      #    端口 @title
+        \\host=localhost    # @default 主机
+    ;
+
+    try ini.loadFromString(content);
+
+    // 验证值正确解析
+    try std.testing.expectEqualStrings("8080", try ini.get("port"));
+    try std.testing.expectEqualStrings("localhost", try ini.get("host"));
+
+    // 验证 @title 和 @default 作为普通注释，不是元数据
+    const port_item = ini.getItem("port").?;
+    try std.testing.expect(port_item.title == null); // 没有 title 元数据
+    try std.testing.expect(port_item.default == null); // 没有 default 元数据
+
+    // 但 description 包含完整的注释内容（如果启用了 description）
+    if (port_item.description) |desc| {
+        try std.testing.expect(std.mem.indexOf(u8, desc, "@title") != null);
+    }
+}
+
+test "行尾注释 - 引号内注释符" {
+    const allocator = std.testing.allocator;
+    var ini = Ini.initWithOptions(allocator, IniOptions.withDescription());
+    defer ini.deinit();
+
+    const content =
+        \\message="hello # world"     # 这才是注释
+        \\path='C:/path;value'    ; 另一个注释
+    ;
+
+    try ini.loadFromString(content);
+
+    // 验证引号内的注释符不被视为行尾注释
+    try std.testing.expectEqualStrings("hello # world", try ini.get("message"));
+    try std.testing.expectEqualStrings("C:/path;value", try ini.get("path"));
+
+    // 验证真正的注释被累积
+    const message_item = ini.getItem("message").?;
+    if (message_item.description) |desc| {
+        try std.testing.expect(std.mem.indexOf(u8, desc, "这才是注释") != null);
+    }
+}
+
+test "行尾注释 - 混合独立注释和行尾注释" {
+    const allocator = std.testing.allocator;
+    var ini = Ini.initWithOptions(allocator, IniOptions.withDescription());
+    defer ini.deinit();
+
+    const content =
+        \\# 这是独立注释
+        \\port=8080      # 端口
+        \\
+        \\; 另一个独立注释
+        \\host=localhost    # 主机地址
+    ;
+
+    try ini.loadFromString(content);
+
+    // 验证值正确解析
+    try std.testing.expectEqualStrings("8080", try ini.get("port"));
+    try std.testing.expectEqualStrings("localhost", try ini.get("host"));
+
+    // 验证注释被累积
+    const port_item = ini.getItem("port").?;
+    if (port_item.description) |desc| {
+        // 应该包含独立注释和行尾注释
+        try std.testing.expect(std.mem.indexOf(u8, desc, "这是独立注释") != null);
+        try std.testing.expect(std.mem.indexOf(u8, desc, "端口") != null);
+    }
+}
+
+test "行尾注释 - 多行值不支持行尾注释" {
+    const allocator = std.testing.allocator;
+    var ini = Ini.init(allocator);
+    defer ini.deinit();
+
+    const content =
+        \\memo=```xxxxx      #   x
+        \\ddddddddddddddd #    y
+        \\```
+    ;
+
+    try ini.loadFromString(content);
+
+    // 验证多行内容包含注释符
+    const value = try ini.get("memo");
+    try std.testing.expect(std.mem.indexOf(u8, value, "#") != null);
+    try std.testing.expect(std.mem.indexOf(u8, value, "#   x") != null);
+    try std.testing.expect(std.mem.indexOf(u8, value, "#    y") != null);
+}
+
+test "行尾注释 - 保存和加载" {
+    const allocator = std.testing.allocator;
+    var ini = Ini.initWithOptions(allocator, IniOptions.withDescription());
+    defer ini.deinit();
+
+    const content =
+        \\port=8080      # 端口
+        \\host=localhost    # 主机地址
+    ;
+
+    try ini.loadFromString(content);
+
+    // 保存为字符串
+    const saved = try ini.saveToString(allocator);
+    defer allocator.free(saved);
+
+    // 重新加载
+    var ini2 = Ini.initWithOptions(allocator, IniOptions.withDescription());
+    defer ini2.deinit();
+    try ini2.loadFromString(saved);
+
+    // 验证值正确保留
+    try std.testing.expectEqualStrings("8080", try ini2.get("port"));
+    try std.testing.expectEqualStrings("localhost", try ini2.get("host"));
+
+    // 验证注释被转换为独立注释行
+    try std.testing.expect(std.mem.indexOf(u8, saved, "# 端口") != null);
+    try std.testing.expect(std.mem.indexOf(u8, saved, "# 主机地址") != null);
+}
+
+test "行尾注释 - section 内的行尾注释" {
+    const allocator = std.testing.allocator;
+    var ini = Ini.init(allocator);
+    defer ini.deinit();
+
+    const content =
+        \\[database]
+        \\host=localhost    # 数据库主机
+        \\port=5432      # 数据库端口
+        \\
+        \\[server]
+        \\port=8080      # 服务器端口
+    ;
+
+    try ini.loadFromString(content);
+
+    // 验证 section 内的值正确解析
+    try std.testing.expectEqualStrings("localhost", try ini.get("database.host"));
+    try std.testing.expectEqualStrings("5432", try ini.get("database.port"));
+    try std.testing.expectEqualStrings("8080", try ini.get("server.port"));
+}
+
+test "行尾注释 - 空注释和空白注释" {
+    const allocator = std.testing.allocator;
+    var ini = Ini.init(allocator);
+    defer ini.deinit();
+
+    const content =
+        \\port=8080      #
+        \\host=localhost    ;
+        \\debug=true          #
+    ;
+
+    try ini.loadFromString(content);
+
+    // 验证值正确解析
+    try std.testing.expectEqualStrings("8080", try ini.get("port"));
+    try std.testing.expectEqualStrings("localhost", try ini.get("host"));
+    try std.testing.expectEqualStrings("true", try ini.get("debug"));
+}
+
+test "行尾注释 - 分号和井号混合使用" {
+    const allocator = std.testing.allocator;
+    var ini = Ini.init(allocator);
+    defer ini.deinit();
+
+    const content =
+        \\port=8080      # 使用井号
+        \\host=localhost    ; 使用分号
+        \\debug=true          # 又是井号
+    ;
+
+    try ini.loadFromString(content);
+
+    // 验证两种注释符都支持
+    try std.testing.expectEqualStrings("8080", try ini.get("port"));
+    try std.testing.expectEqualStrings("localhost", try ini.get("host"));
+    try std.testing.expectEqualStrings("true", try ini.get("debug"));
 }
