@@ -62,7 +62,6 @@ fn buildIniLib(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.bu
         .root_source_file = b.path("src/ini.zig"),
         .target = target,
         .optimize = optimize,
-        .link_libc = true,
     });
 
     // 构建静态库
@@ -94,14 +93,20 @@ fn buildIniLib(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.bu
 
 // 构建测试并输出到 zig-out/test
 fn buildTests(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, target_triple: []const u8, test_step: *std.Build.Step) void {
+    // 创建测试模块
+    const test_module = b.createModule(.{
+        .root_source_file = b.path("src/ini.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    // 在模块中启用libc链接
+    test_module.link_libc = true;
+
     // 创建 ini.zig 的测试
     const ini_test = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/ini.zig"),
-            .target = target,
-            .optimize = optimize,
-            .link_libc = true,
-        }),
+        .name = "ini_test",
+        .root_module = test_module,
     });
 
     // 安装 ini 测试到 zig-out/test/[platform]/

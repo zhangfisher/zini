@@ -7,7 +7,7 @@ const IniOptions = @import("zini").IniOptions;
 
 test "解析 @title 注解" {
     const allocator = std.testing.allocator;
-    var config = Ini.init(allocator);
+    var config = Ini.default(allocator);
     defer config.deinit();
 
     const content =
@@ -17,7 +17,7 @@ test "解析 @title 注解" {
 
     try config.loadFromString(content);
 
-    const schema = config.getSchema("db_host");
+    const schema = config.getItem("db_host");
     try std.testing.expect(schema != null);
 
     const e = schema.?;
@@ -40,7 +40,7 @@ test "解析普通注释到 description 字段" {
 
     try config.loadFromString(content);
 
-    const schema = config.getSchema("key");
+    const schema = config.getItem("key");
     try std.testing.expect(schema != null);
 
     const e = schema.?;
@@ -63,7 +63,7 @@ test "解析混合注解（@title 和普通注释）" {
 
     try config.loadFromString(content);
 
-    const schema = config.getSchema("db_host");
+    const schema = config.getItem("db_host");
     try std.testing.expect(schema != null);
 
     const e = schema.?;
@@ -88,7 +88,7 @@ test "解析 section 中的注解" {
     const section = config.sections.get("database");
     try std.testing.expect(section != null);
 
-    const schema = section.?.getSchema("timeout");
+    const schema = section.?.getItem("timeout");
     try std.testing.expect(schema != null);
 
     const e = schema.?;
@@ -115,21 +115,21 @@ test "解析多个不同注解的配置项" {
 
     try config.loadFromString(content);
 
-    const host_schema = config.getSchema("host");
+    const host_schema = config.getItem("host");
     try std.testing.expect(host_schema != null);
     if (host_schema) |e| {
         try std.testing.expectEqualStrings("Server Host", e.title.?);
         try std.testing.expect(e.description == null);
     }
 
-    const port_schema = config.getSchema("port");
+    const port_schema = config.getItem("port");
     try std.testing.expect(port_schema != null);
     if (port_schema) |e| {
         try std.testing.expectEqualStrings("Server Port", e.title.?);
         try std.testing.expectEqualStrings("The port number for the server", e.description.?);
     }
 
-    const timeout_schema = config.getSchema("timeout");
+    const timeout_schema = config.getItem("timeout");
     try std.testing.expect(timeout_schema != null);
     if (timeout_schema) |e| {
         try std.testing.expectEqualStrings("Regular comment for timeout", e.description.?);
@@ -139,7 +139,7 @@ test "解析多个不同注解的配置项" {
 
 test "解析没有注解的配置项" {
     const allocator = std.testing.allocator;
-    var config = Ini.init(allocator);
+    var config = Ini.default(allocator);
     defer config.deinit();
 
     const content =
@@ -148,7 +148,7 @@ test "解析没有注解的配置项" {
 
     try config.loadFromString(content);
 
-    const schema = config.getSchema("key");
+    const schema = config.getItem("key");
     try std.testing.expect(schema != null);
 
     const e = schema.?;
@@ -159,7 +159,7 @@ test "解析没有注解的配置项" {
 
 test "解析值为空的 @title" {
     const allocator = std.testing.allocator;
-    var config = Ini.init(allocator);
+    var config = Ini.default(allocator);
     defer config.deinit();
 
     const content =
@@ -169,7 +169,7 @@ test "解析值为空的 @title" {
 
     try config.loadFromString(content);
 
-    const schema = config.getSchema("key");
+    const schema = config.getItem("key");
     try std.testing.expect(schema != null);
 
     const e = schema.?;
@@ -198,7 +198,7 @@ test "保存并加载带 @title 注解的配置" {
     defer config2.deinit();
     try config2.loadFromString(saved);
 
-    const schema = config2.getSchema("db_host");
+    const schema = config2.getItem("db_host");
     try std.testing.expect(schema != null);
 
     const e = schema.?;
@@ -226,7 +226,7 @@ test "保存并加载保持注释格式" {
     defer config2.deinit();
     try config2.loadFromString(saved);
 
-    const schema = config2.getSchema("db_host");
+    const schema = config2.getItem("db_host");
     try std.testing.expect(schema != null);
 
     const e = schema.?;
@@ -261,7 +261,7 @@ test "保存并加载混合注解" {
     defer config2.deinit();
     try config2.loadFromString(saved);
 
-    const schema = config2.getSchema("db_host");
+    const schema = config2.getItem("db_host");
     try std.testing.expect(schema != null);
 
     const e = schema.?;
@@ -306,7 +306,7 @@ test "解析并保存多行文档注释" {
 
     try config.loadFromString(content);
 
-    const schema = config.getSchema("key");
+    const schema = config.getItem("key");
     try std.testing.expect(schema != null);
 
     const e = schema.?;
@@ -322,7 +322,7 @@ test "解析并保存多行文档注释" {
     defer config2.deinit();
     try config2.loadFromString(saved);
 
-    const schema2 = config2.getSchema("key");
+    const schema2 = config2.getItem("key");
     try std.testing.expect(schema2 != null);
     try std.testing.expectEqualStrings(expected, schema2.?.description.?);
 }
@@ -349,14 +349,14 @@ test "解析 section 中的混合注解" {
     const section = config.sections.get("database");
     try std.testing.expect(section != null);
 
-    const host_schema = section.?.getSchema("host");
+    const host_schema = section.?.getItem("host");
     try std.testing.expect(host_schema != null);
     if (host_schema) |e| {
         try std.testing.expectEqualStrings("Host", e.title.?);
         try std.testing.expectEqualStrings("Database configuration section\nDatabase server host", e.description.?);
     }
 
-    const port_schema = section.?.getSchema("port");
+    const port_schema = section.?.getItem("port");
     try std.testing.expect(port_schema != null);
     if (port_schema) |e| {
         try std.testing.expectEqualStrings("Port", e.title.?);
@@ -366,7 +366,7 @@ test "解析 section 中的混合注解" {
 
 test "分号注释与注解" {
     const allocator = std.testing.allocator;
-    var config = Ini.init(allocator);
+    var config = Ini.default(allocator);
     defer config.deinit();
 
     const content =
@@ -376,7 +376,7 @@ test "分号注释与注解" {
 
     try config.loadFromString(content);
 
-    const schema = config.getSchema("key");
+    const schema = config.getItem("key");
     try std.testing.expect(schema != null);
 
     const e = schema.?;
@@ -396,7 +396,7 @@ test "注解中的尾部空格" {
 
     try config.loadFromString(content);
 
-    const schema = config.getSchema("key");
+    const schema = config.getItem("key");
     try std.testing.expect(schema != null);
 
     const e = schema.?;
@@ -407,7 +407,7 @@ test "注解中的尾部空格" {
 
 test "解析各种空格的 @title" {
     const allocator = std.testing.allocator;
-    var config = Ini.init(allocator);
+    var config = Ini.default(allocator);
     defer config.deinit();
 
     // 测试 # 后多个空格
@@ -418,7 +418,7 @@ test "解析各种空格的 @title" {
     , .{});
 
     try config.loadFromString(content);
-    const schema = config.getSchema("key");
+    const schema = config.getItem("key");
     try std.testing.expect(schema != null);
 
     const e = schema.?;
@@ -427,14 +427,14 @@ test "解析各种空格的 @title" {
 
 test "解析 # 后没有空格的 @title" {
     const allocator = std.testing.allocator;
-    var config = Ini.init(allocator);
+    var config = Ini.default(allocator);
     defer config.deinit();
 
     // 测试 # 后没有空格
     const content = "#@title No Space\nkey=value\n";
 
     try config.loadFromString(content);
-    const schema = config.getSchema("key");
+    const schema = config.getItem("key");
     try std.testing.expect(schema != null);
 
     const e = schema.?;
@@ -443,7 +443,7 @@ test "解析 # 后没有空格的 @title" {
 
 test "解析包含 tab 字符的 @title" {
     const allocator = std.testing.allocator;
-    var config = Ini.init(allocator);
+    var config = Ini.default(allocator);
     defer config.deinit();
 
     // 测试 tab 字符（使用拼接创建包含 tab 的字符串）
@@ -451,7 +451,7 @@ test "解析包含 tab 字符的 @title" {
     defer allocator.free(content);
 
     try config.loadFromString(content);
-    const schema = config.getSchema("key");
+    const schema = config.getItem("key");
     try std.testing.expect(schema != null);
 
     const e = schema.?;
@@ -460,7 +460,7 @@ test "解析包含 tab 字符的 @title" {
 
 test "保存时统一 @title 的空格格式" {
     const allocator = std.testing.allocator;
-    var config = Ini.init(allocator);
+    var config = Ini.default(allocator);
     defer config.deinit();
 
     // 各种空格格式保存后统一
@@ -487,7 +487,7 @@ test "解析注释后有空行的配置项" {
 
     try config.loadFromString(content);
 
-    const schema = config.getSchema("port");
+    const schema = config.getItem("port");
     try std.testing.expect(schema != null);
 
     const e = schema.?;
@@ -511,7 +511,7 @@ test "解析多个空行的配置项" {
 
     try config.loadFromString(content);
 
-    const schema = config.getSchema("port");
+    const schema = config.getItem("port");
     try std.testing.expect(schema != null);
 
     const e = schema.?;
@@ -541,4 +541,3 @@ test "保存带空行的配置" {
     const lines = std.mem.count(u8, saved, "\n");
     try std.testing.expect(lines == 2); // "# 这是端口\nport = 8080\n"
 }
-

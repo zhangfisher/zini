@@ -124,7 +124,7 @@ pub fn main() !void {
     std.debug.print("请查看完整示例: examples/web_backend_config.zig\n", .{});
     std.debug.print("\n基本用法:\n", .{});
     std.debug.print("  const Ini = @import(\"zini\").Ini;\n", .{});
-    std.debug.print("  var ini = Ini.init(allocator);\n", .{});
+    std.debug.print("  var ini = Ini.default(allocator);\n", .{});
     std.debug.print("  try ini.loadFromString(content);\n", .{});
     std.debug.print("  const value = ini.get(\"key\").?;\n", .{});
 

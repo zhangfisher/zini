@@ -3,8 +3,8 @@
 //! 展示 INI 库的类型标识功能：key:类型=值
 
 const std = @import("std");
-const Ini = @import("zini").Ini;
-const DataType = @import("zini").DataType;
+const Ini = @import("../src/ini.zig").Ini;
+const DataType = @import("../src/ini.zig").DataType;
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -34,7 +34,7 @@ pub fn main() !void {
             \\message:string=Hello World
         ;
 
-        var config = Ini.init(allocator);
+        var config = Ini.default(allocator);
         defer config.deinit();
 
         try config.loadFromString(config_content);
@@ -89,7 +89,7 @@ pub fn main() !void {
             \\connection_timeout: f32=5.5
         ;
 
-        var config = Ini.init(allocator);
+        var config = Ini.default(allocator);
         defer config.deinit();
 
         try config.loadFromString(config_content);
@@ -138,7 +138,7 @@ pub fn main() !void {
             \\timeout=30.5
         ;
 
-        var config = Ini.init(allocator);
+        var config = Ini.default(allocator);
         defer config.deinit();
 
         try config.loadFromString(config_content);
@@ -211,7 +211,7 @@ pub fn main() !void {
             \\intelligence: u16=12
         ;
 
-        var config = Ini.init(allocator);
+        var config = Ini.default(allocator);
         defer config.deinit();
 
         try config.loadFromString(game_config);
@@ -270,7 +270,7 @@ pub fn main() !void {
             \\rate: f64=3.14159
         ;
 
-        var config = Ini.init(allocator);
+        var config = Ini.default(allocator);
         defer config.deinit();
 
         try config.loadFromString(config_content);
@@ -281,7 +281,7 @@ pub fn main() !void {
 
         // 类型不匹配（会溢出的值）
         const overflow_content = "count:u8=300";
-        var config2 = Ini.init(allocator);
+        var config2 = Ini.default(allocator);
         defer config2.deinit();
         try config2.loadFromString(overflow_content);
 

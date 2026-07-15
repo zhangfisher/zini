@@ -1,7 +1,7 @@
 //! 行尾注释功能演示
 
 const std = @import("std");
-const Ini = @import("zini").Ini;
+const Ini = @import("../src/ini.zig").Ini;
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -23,7 +23,7 @@ pub fn main() !void {
             \\port=8080     # 服务端口
         ;
 
-        var config = Ini.init(allocator);
+        var config = Ini.default(allocator);
         defer config.deinit();
 
         try config.loadFromString(config_content);
@@ -53,7 +53,7 @@ pub fn main() !void {
             \\code="if (x > 0) // check"        # 代码片段
         ;
 
-        var config = Ini.init(allocator);
+        var config = Ini.default(allocator);
         defer config.deinit();
 
         try config.loadFromString(config_content);
@@ -83,7 +83,7 @@ pub fn main() !void {
             \\name:string=Test   # 名称
         ;
 
-        var config = Ini.init(allocator);
+        var config = Ini.default(allocator);
         defer config.deinit();
 
         try config.loadFromString(config_content);
@@ -118,7 +118,7 @@ pub fn main() !void {
             \\queue_size:u32=1000 // 队列大小
         ;
 
-        var config = Ini.init(allocator);
+        var config = Ini.default(allocator);
         defer config.deinit();
 
         try config.loadFromString(config_content);
@@ -174,7 +174,7 @@ pub fn main() !void {
             \\rotate: bool=true             // 启用日志轮转
         ;
 
-        var config = Ini.init(allocator);
+        var config = Ini.default(allocator);
         defer config.deinit();
 
         try config.loadFromString(real_config);

@@ -6,7 +6,7 @@ const Ini = @import("zini").Ini;
 
 test "reset 基本功能：将配置重置为默认值" {
     const allocator = std.testing.allocator;
-    var ini = Ini.init(allocator);
+    var ini = Ini.default(allocator);
     defer ini.deinit();
 
     const content =
@@ -22,24 +22,24 @@ test "reset 基本功能：将配置重置为默认值" {
     try ini.loadFromString(content);
 
     // 验证初始值
-    try testing.expectEqualStrings("9000", ini.getSchema("port").?.value);
-    try testing.expectEqualStrings("remotehost", ini.getSchema("host").?.value);
-    try testing.expectEqualStrings("value", ini.getSchema("no_default").?.value);
+    try testing.expectEqualStrings("9000", ini.getItem("port").?.value);
+    try testing.expectEqualStrings("remotehost", ini.getItem("host").?.value);
+    try testing.expectEqualStrings("value", ini.getItem("no_default").?.value);
 
     // 重置配置
     try ini.reset();
 
     // 验证重置后的值
-    try testing.expectEqualStrings("8080", ini.getSchema("port").?.value);
-    try testing.expectEqualStrings("localhost", ini.getSchema("host").?.value);
-    try testing.expectEqualStrings("value", ini.getSchema("no_default").?.value); // 无默认值，保持不变
+    try testing.expectEqualStrings("8080", ini.getItem("port").?.value);
+    try testing.expectEqualStrings("localhost", ini.getItem("host").?.value);
+    try testing.expectEqualStrings("value", ini.getItem("no_default").?.value); // 无默认值，保持不变
 
     std.debug.print("  ✓ reset 基本功能测试通过\n", .{});
 }
 
 test "reset 处理 section 中的配置" {
     const allocator = std.testing.allocator;
-    var ini = Ini.init(allocator);
+    var ini = Ini.default(allocator);
     defer ini.deinit();
 
     const content =
@@ -55,22 +55,22 @@ test "reset 处理 section 中的配置" {
     try ini.loadFromString(content);
 
     // 验证初始值
-    try testing.expectEqualStrings("9000", ini.getSchema("server.port").?.value);
-    try testing.expectEqualStrings("remotehost", ini.getSchema("database.host").?.value);
+    try testing.expectEqualStrings("9000", ini.getItem("server.port").?.value);
+    try testing.expectEqualStrings("remotehost", ini.getItem("database.host").?.value);
 
     // 重置配置
     try ini.reset();
 
     // 验证重置后的值
-    try testing.expectEqualStrings("8080", ini.getSchema("server.port").?.value);
-    try testing.expectEqualStrings("localhost", ini.getSchema("database.host").?.value);
+    try testing.expectEqualStrings("8080", ini.getItem("server.port").?.value);
+    try testing.expectEqualStrings("localhost", ini.getItem("database.host").?.value);
 
     std.debug.print("  ✓ reset section 处理测试通过\n", .{});
 }
 
 test "reset 无默认值时保持原值" {
     const allocator = std.testing.allocator;
-    var ini = Ini.init(allocator);
+    var ini = Ini.default(allocator);
     defer ini.deinit();
 
     const content =
@@ -81,22 +81,22 @@ test "reset 无默认值时保持原值" {
     try ini.loadFromString(content);
 
     // 验证初始值
-    try testing.expectEqualStrings("9000", ini.getSchema("port").?.value);
-    try testing.expectEqualStrings("remotehost", ini.getSchema("host").?.value);
+    try testing.expectEqualStrings("9000", ini.getItem("port").?.value);
+    try testing.expectEqualStrings("remotehost", ini.getItem("host").?.value);
 
     // 重置配置
     try ini.reset();
 
     // 验证值保持不变
-    try testing.expectEqualStrings("9000", ini.getSchema("port").?.value);
-    try testing.expectEqualStrings("remotehost", ini.getSchema("host").?.value);
+    try testing.expectEqualStrings("9000", ini.getItem("port").?.value);
+    try testing.expectEqualStrings("remotehost", ini.getItem("host").?.value);
 
     std.debug.print("  ✓ reset 无默认值测试通过\n", .{});
 }
 
 test "reset 混合场景：全局和 section" {
     const allocator = std.testing.allocator;
-    var ini = Ini.init(allocator);
+    var ini = Ini.default(allocator);
     defer ini.deinit();
 
     const content =
@@ -119,19 +119,19 @@ test "reset 混合场景：全局和 section" {
     try ini.reset();
 
     // 验证全局配置
-    try testing.expectEqualStrings("8080", ini.getSchema("global_port").?.value);
+    try testing.expectEqualStrings("8080", ini.getItem("global_port").?.value);
 
     // 验证 section 配置
-    try testing.expectEqualStrings("8080", ini.getSchema("server.port").?.value);
-    try testing.expectEqualStrings("value", ini.getSchema("server.no_default").?.value);
-    try testing.expectEqualStrings("localhost", ini.getSchema("database.host").?.value);
+    try testing.expectEqualStrings("8080", ini.getItem("server.port").?.value);
+    try testing.expectEqualStrings("value", ini.getItem("server.no_default").?.value);
+    try testing.expectEqualStrings("localhost", ini.getItem("database.host").?.value);
 
     std.debug.print("  ✓ reset 混合场景测试通过\n", .{});
 }
 
 test "reset 内存安全验证" {
     const allocator = std.testing.allocator;
-    var ini = Ini.init(allocator);
+    var ini = Ini.default(allocator);
     defer ini.deinit();
 
     const content =
@@ -142,13 +142,13 @@ test "reset 内存安全验证" {
     try ini.loadFromString(content);
 
     // 获取原始 value 指针
-    const old_value = ini.getSchema("port").?.value;
+    const old_value = ini.getItem("port").?.value;
 
     // 重置配置
     try ini.reset();
 
     // 获取新的 value 指针
-    const new_value = ini.getSchema("port").?.value;
+    const new_value = ini.getItem("port").?.value;
 
     // 验证指针不同（内存重新分配）
     try testing.expect(old_value.ptr != new_value.ptr);

@@ -1,7 +1,7 @@
 //! 智能类型推断和选择性写入演示
 
 const std = @import("std");
-const Ini = @import("zini").Ini;
+const Ini = @import("../src/ini.zig").Ini;
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -15,7 +15,7 @@ pub fn main() !void {
         std.debug.print("示例 1: 自动类型推断\n", .{});
         std.debug.print("----------------------\n", .{});
 
-        var config = Ini.init(allocator);
+        var config = Ini.default(allocator);
         defer config.deinit();
 
         // 设置不同类型的值，系统自动推断
@@ -40,7 +40,7 @@ pub fn main() !void {
         std.debug.print("示例 2: 显式类型标注\n", .{});
         std.debug.print("------------------\n", .{});
 
-        var config = Ini.init(allocator);
+        var config = Ini.default(allocator);
         defer config.deinit();
 
         // 使用类型标注，精确控制类型
@@ -60,7 +60,7 @@ pub fn main() !void {
         std.debug.print("示例 3: 混合使用自动推断和显式标注\n", .{});
         std.debug.print("-----------------------------------\n", .{});
 
-        var config = Ini.init(allocator);
+        var config = Ini.default(allocator);
         defer config.deinit();
 
         // 自动推断的值
@@ -84,7 +84,7 @@ pub fn main() !void {
         std.debug.print("示例 4: 路径语法 + 智能推断\n", .{});
         std.debug.print("-----------------------\n", .{});
 
-        var config = Ini.init(allocator);
+        var config = Ini.default(allocator);
         defer config.deinit();
 
         try config.set("server.port", "8080");        // 自动推断为 u16

@@ -5,7 +5,7 @@ const Ini = @import("zini").Ini;
 
 test "基本多行字符串" {
     const allocator = std.testing.allocator;
-    var ini = Ini.init(allocator);
+    var ini = Ini.default(allocator);
     defer ini.deinit();
 
     const content =
@@ -23,7 +23,7 @@ test "基本多行字符串" {
 
 test "多行字符串包含空行" {
     const allocator = std.testing.allocator;
-    var ini = Ini.init(allocator);
+    var ini = Ini.default(allocator);
     defer ini.deinit();
 
     const content =
@@ -44,7 +44,7 @@ test "多行字符串包含空行" {
 
 test "容错 - 缺少结束标识遇到新section" {
     const allocator = std.testing.allocator;
-    var ini = Ini.init(allocator);
+    var ini = Ini.default(allocator);
     defer ini.deinit();
 
     const content =
@@ -66,7 +66,7 @@ test "容错 - 缺少结束标识遇到新section" {
 
 test "类型约束 - 非字符串类型忽略多行" {
     const allocator = std.testing.allocator;
-    var ini = Ini.init(allocator);
+    var ini = Ini.default(allocator);
     defer ini.deinit();
 
     const content =
@@ -87,7 +87,7 @@ test "类型约束 - 非字符串类型忽略多行" {
 
 test "混合单行和多行" {
     const allocator = std.testing.allocator;
-    var ini = Ini.init(allocator);
+    var ini = Ini.default(allocator);
     defer ini.deinit();
 
     const content =
@@ -113,7 +113,7 @@ test "混合单行和多行" {
 
 test "空多行字符串" {
     const allocator = std.testing.allocator;
-    var ini = Ini.init(allocator);
+    var ini = Ini.default(allocator);
     defer ini.deinit();
 
     const content =
@@ -130,7 +130,7 @@ test "空多行字符串" {
 
 test "包含特殊字符" {
     const allocator = std.testing.allocator;
-    var ini = Ini.init(allocator);
+    var ini = Ini.default(allocator);
     defer ini.deinit();
 
     const content =
@@ -148,7 +148,7 @@ test "包含特殊字符" {
 
 test "文件尾容错" {
     const allocator = std.testing.allocator;
-    var ini = Ini.init(allocator);
+    var ini = Ini.default(allocator);
     defer ini.deinit();
 
     const content =
@@ -165,7 +165,7 @@ test "文件尾容错" {
 
 test "引号字符串不受影响" {
     const allocator = std.testing.allocator;
-    var ini = Ini.init(allocator);
+    var ini = Ini.default(allocator);
     defer ini.deinit();
 
     const content =
@@ -187,7 +187,7 @@ test "引号字符串不受影响" {
 
 test "全局和section混合" {
     const allocator = std.testing.allocator;
-    var ini = Ini.init(allocator);
+    var ini = Ini.default(allocator);
     defer ini.deinit();
 
     const content =
@@ -212,7 +212,7 @@ test "全局和section混合" {
 
 test "多行字符串trimAll处理" {
     const allocator = std.testing.allocator;
-    var ini = Ini.init(allocator);
+    var ini = Ini.default(allocator);
     defer ini.deinit();
 
     const content =
@@ -232,7 +232,7 @@ test "多行字符串trimAll处理" {
 
 test "多行字符串包含注释字符" {
     const allocator = std.testing.allocator;
-    var ini = Ini.init(allocator);
+    var ini = Ini.default(allocator);
     defer ini.deinit();
 
     const content =

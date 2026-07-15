@@ -1,8 +1,8 @@
 //! 测试自动注释保留功能
 
 const std = @import("std");
-const Ini = @import("zini").Ini;
-const IniOptions = @import("zini").IniOptions;
+const Ini = @import("../src/ini.zig").Ini;
+const IniOptions = @import("../src/ini.zig").IniOptions;
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -13,7 +13,7 @@ pub fn main() !void {
 
     // 1. 使用默认API从文件加载
     std.debug.print("步骤1：使用默认API从文件加载 real_config.ini\n", .{});
-    var ini = Ini.init(allocator);
+    var ini = Ini.default(allocator);
     defer ini.deinit();
     try ini.load("examples/real_config.ini");
 

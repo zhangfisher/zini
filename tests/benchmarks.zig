@@ -1,7 +1,7 @@
 //! Zig 0.16 简化性能基准测试
 
 const std = @import("std");
-const Ini = @import("zig_ini").Ini;
+const Ini = @import("zini").Ini;
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -28,7 +28,7 @@ pub fn main() !void {
             \\port = 8080
         ;
 
-        var ini = Ini.init(allocator);
+        var ini = Ini.default(allocator);
         defer ini.deinit();
 
         try ini.loadFromString(test_ini);
@@ -46,7 +46,7 @@ pub fn main() !void {
     // 测试 2: 序列化
     {
         std.debug.print("\n测试 2: INI 序列化\n", .{});
-        var ini = Ini.init(allocator);
+        var ini = Ini.default(allocator);
         defer ini.deinit();
 
         try ini.set("test_key", "test_value");
@@ -67,7 +67,7 @@ pub fn main() !void {
     // 测试 3: 性能测试
     {
         std.debug.print("\n测试 3: 批量操作性能\n", .{});
-        var ini = Ini.init(allocator);
+        var ini = Ini.default(allocator);
         defer ini.deinit();
 
         // 添加大量配置
@@ -87,7 +87,7 @@ pub fn main() !void {
     // 测试 4: 查找性能
     {
         std.debug.print("\n测试 4: 查找性能\n", .{});
-        var ini = Ini.init(allocator);
+        var ini = Ini.default(allocator);
         defer ini.deinit();
 
         try ini.set("key1", "value1");
@@ -110,7 +110,7 @@ pub fn main() !void {
     // 测试 5: 错误处理
     {
         std.debug.print("\n测试 5: 错误处理\n", .{});
-        var ini = Ini.init(allocator);
+        var ini = Ini.default(allocator);
         defer ini.deinit();
 
         // 测试查找不存在的键

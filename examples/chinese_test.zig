@@ -1,7 +1,7 @@
 //! 中文支持测试
 
 const std = @import("std");
-const Ini = @import("zini").Ini;
+const Ini = @import("../src/ini.zig").Ini;
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -30,7 +30,7 @@ pub fn main() !void {
         \\按钮取消=取消
     ;
 
-    var config = Ini.init(allocator);
+    var config = Ini.default(allocator);
     defer config.deinit();
 
     try config.loadFromString(config_content);

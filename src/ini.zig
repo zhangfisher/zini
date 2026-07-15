@@ -36,6 +36,7 @@ pub const Error = error{
     InvalidCharacter,
     InvalidValue, // 校验失败
     Overflow, // 数值溢出（转换器使用）
+    MissingKey, // Item.key 为 null 时返回（initWithItems 使用）
 };
 
 /// Ini 配置选项 - 位枚举
@@ -58,10 +59,10 @@ pub const IniOptions = struct {
 
 /// A single key-value Item with type information
 pub const Item = struct {
-    key: []const u8,
-    value: []const u8,
-    datatype: DataType,
-    flags: types.ItemFlags,
+    key: ?[]const u8 = null,
+    value: ?[]const u8 = null,
+    datatype: ?DataType = null,
+    flags: ?types.ItemFlags = null,
     /// 标题（从 @title 注释标记解析）
     title: ?[]const u8 = null,
     /// 描述（其他所有普通注释）
@@ -103,8 +104,8 @@ pub const Item = struct {
 
     /// Free Item resources
     pub fn deinit(self: *Item, allocator: Allocator) void {
-        allocator.free(self.key);
-        allocator.free(self.value);
+        if (self.key) |k| allocator.free(k);
+        if (self.value) |v| allocator.free(v);
         if (self.title) |title_text| {
             allocator.free(title_text);
         }
@@ -126,7 +127,7 @@ pub const Item = struct {
 
     /// Free Item resources except key (used when key is owned by HashMap)
     pub fn deinitWithoutKey(self: *Item, allocator: Allocator) void {
-        allocator.free(self.value);
+        if (self.value) |v| allocator.free(v);
         if (self.title) |title_text| {
             allocator.free(title_text);
         }
@@ -147,23 +148,25 @@ pub const Item = struct {
     }
 
     /// 获取值，支持默认值回退
-    /// 当 value 为空时，如果 default 不为空，则返回 default
-    /// 返回值始终非空（至少返回原始 value）
+    /// 当 value 为 null 或空时，如果 default 不为空，则返回 default
+    /// 返回值始终非空（至少返回空字符串）
     pub fn getValue(self: *const Item) []const u8 {
-        // 先检查 value 是否为空（直接检查长度，避免重复 trim）
-        if (self.value.len > 0) {
-            return self.value; // value 有内容，返回 value
+        // 先检查 value 是否有值
+        if (self.value) |v| {
+            if (v.len > 0) {
+                return v; // value 有内容，返回 value
+            }
         }
 
-        // value 为空，尝试使用 default
+        // value 为 null 或空，尝试使用 default
         if (self.default) |default_value| {
             if (default_value.len > 0) {
                 return default_value; // default 有内容，返回 default
             }
         }
 
-        // 都为空，返回原始 value（空字符串）
-        return self.value;
+        // 都为空，返回空字符串
+        return "";
     }
 
     /// Get value as boolean
@@ -240,7 +243,7 @@ pub const Item = struct {
             }
 
             // 复制后面的元素
-            for (validator_names[found_index + 1..], 0..) |v, i| {
+            for (validator_names[found_index + 1 ..], 0..) |v, i| {
                 new_validators[found_index + i] = v;
             }
 
@@ -284,18 +287,18 @@ pub const Ini = struct {
     items: StringHashMap(Item),
     sections: StringHashMap(Ini),
     options: IniOptions, // 存储加载选项
-    original_file_path: ?[]const u8 = null, // 记录原始文件路径，用于自动注释保留
+    file: ?[]const u8 = null, // 记录原始文件路径，用于自动注释保留
     validators: @import("validate.zig").ValidatorRegistry, // 校验器注册表（公开字段）
 
     /// Create a new empty Ini structure（默认：内存优化，不加载 description）
     /// **行为变化**：从 v2.0 开始，默认不加载 description 以节省内存
-    pub fn init(allocator: Allocator) Ini {
+    pub fn default(allocator: Allocator) Ini {
         return .{
             .allocator = allocator,
             .items = StringHashMap(Item).init(allocator),
             .sections = StringHashMap(Ini).init(allocator),
             .options = IniOptions{}, // 默认不加载 description
-            .original_file_path = null,
+            .file = null,
             .validators = @import("validate.zig").ValidatorRegistry.init(allocator),
         };
     }
@@ -308,15 +311,60 @@ pub const Ini = struct {
             .items = StringHashMap(Item).init(allocator),
             .sections = StringHashMap(Ini).init(allocator),
             .options = options,
-            .original_file_path = null,
+            .file = null,
             .validators = @import("validate.zig").ValidatorRegistry.init(allocator),
         };
+    }
+
+    /// Create a new Ini structure initialized with multiple Items
+    ///
+    /// This method provides a convenient way to create an Ini instance
+    /// pre-populated with multiple configuration items. It performs deep
+    /// copies of all items and ensures atomicity (all items added or none).
+    ///
+    /// ## Parameters
+    /// - allocator: Memory allocator for all copies
+    /// - items: Slice of Items to add (each must have non-null key)
+    ///
+    /// ## Returns
+    /// - Error!Ini: Initialized Ini or error (OutOfMemory, MissingKey, InvalidValue)
+    ///
+    /// ## Memory Management
+    /// - Caller is responsible for deinitializing returned Ini
+    /// - Caller is responsible for deinitializing original Items
+    /// - On error, all partial allocations are cleaned up automatically
+    ///
+    /// ## Example
+    /// ```zig
+    /// const items = [_]Item{
+    ///     Item{ .key = "port", .value = "8080" },
+    ///     Item{ .key = "host", .value = "localhost" },
+    ///     Item{ .key = "debug.enabled", .value = "true" },
+    /// };
+    /// var ini = try Ini.init(allocator, &items);
+    /// defer ini.deinit();
+    /// ```
+    pub fn init(allocator: Allocator, items: []const Item) Error!Ini {
+        // Create empty Ini with default options
+        var ini = default(allocator);
+        errdefer ini.deinit(); // Rollback on any error
+
+        // Process each item sequentially
+        for (items) |item| {
+            // Validate that key exists (required for addItem)
+            const key = item.key orelse return error.MissingKey;
+
+            // Use existing addItem logic (handles deep copy, sections, errors)
+            try ini.addItem(key, item);
+        }
+
+        return ini;
     }
 
     /// Free all resources
     pub fn deinit(self: *Ini) void {
         // 释放原始文件路径
-        if (self.original_file_path) |path| {
+        if (self.file) |path| {
             self.allocator.free(path);
         }
 
@@ -347,11 +395,11 @@ pub const Ini = struct {
     /// Load INI from file
     pub fn load(self: *Ini, path: []const u8) Error!void {
         // 记录原始文件路径（用于自动注释保留）
-        if (self.original_file_path) |old_path| {
+        if (self.file) |old_path| {
             self.allocator.free(old_path);
         }
-        self.original_file_path = self.allocator.dupe(u8, path) catch |err| {
-            self.original_file_path = null;
+        self.file = self.allocator.dupe(u8, path) catch |err| {
+            self.file = null;
             return err;
         };
 
@@ -443,7 +491,7 @@ pub const Ini = struct {
     /// Save INI to file（自动处理注释保留）
     pub fn save(self: *Ini, path: []const u8) Error!void {
         // 尝试从原文件恢复缺失的注释
-        if (self.original_file_path) |original_path| {
+        if (self.file) |original_path| {
             _ = self.tryRestoreFromOriginal(original_path);
         }
 
@@ -617,12 +665,14 @@ pub const Ini = struct {
 
         // 4. 写入 key = value
         // 应用转换器（如果存在）
-        var output_value = item.value;
+        var output_value = if (item.value) |v| v else "";
         if (item.converter) |converter| {
-            output_value = try converter.to(item.value);
+            if (item.value) |v| {
+                output_value = try converter.to(v);
+            }
         }
 
-        const key_value = try std.fmt.allocPrint(allocator, "{s} = {s}\n", .{ item.key, output_value });
+        const key_value = try std.fmt.allocPrint(allocator, "{s} = {s}\n", .{ if (item.key) |k| k else "", output_value });
         defer allocator.free(key_value);
         try buffer.appendSlice(allocator, key_value);
     }
@@ -656,8 +706,9 @@ pub const Ini = struct {
     /// This method is equivalent to getString() and provides default value fallback support.
     /// For error handling, it returns KeyNotFound error if the key doesn't exist.
     ///
-    /// This pairs semantically with set() - both use error union types for consistency.
-    pub fn get(self: *const Ini, key: []const u8) ![]const u8 {
+    /// This pairs semantically with set() for consistency.
+    /// Returns empty string if key not found.
+    pub fn get(self: *const Ini, key: []const u8) []const u8 {
         // 直接调用 getString，实现完全等效的行为
         return self.getString(key);
     }
@@ -690,41 +741,47 @@ pub const Ini = struct {
     /// 校验指定 Item 的值（私有方法）
     fn validate(self: *const Ini, item: *const Item) !void {
         if (!self.validators.validate(item)) {
-            std.log.err("校验失败：key '{s}' 的值 '{s}' 不符合要求", .{ item.key, item.value });
+            const key_str = if (item.key) |k| k else "";
+            const value_str = if (item.value) |v| v else "";
+            std.log.err("校验失败：key '{s}' 的值 '{s}' 不符合要求", .{ key_str, value_str });
             return error.InvalidValue;
         }
     }
 
     /// Get global value as string
-    pub fn getString(self: *const Ini, key: []const u8) ![]const u8 {
+    /// Returns empty string if key not found
+    pub fn getString(self: *const Ini, key: []const u8) []const u8 {
         if (self.getItem(key)) |item| {
             return item.asString();
         }
-        return error.KeyNotFound;
+        return "";
     }
 
     /// Get global value as number (i64)
-    pub fn getNumber(self: *const Ini, key: []const u8) !i64 {
+    /// Returns 0 if key not found
+    pub fn getNumber(self: *const Ini, key: []const u8) i64 {
         if (self.getItem(key)) |item| {
-            return item.asNumber();
+            return item.asNumber() catch 0;
         }
-        return error.KeyNotFound;
+        return 0;
     }
 
     /// Get global value as boolean
-    pub fn getBoolean(self: *const Ini, key: []const u8) !bool {
+    /// Returns false if key not found
+    pub fn getBoolean(self: *const Ini, key: []const u8) bool {
         if (self.getItem(key)) |item| {
-            return item.asBoolean();
+            return item.asBoolean() catch false;
         }
-        return error.KeyNotFound;
+        return false;
     }
 
     /// Get global value as float (f64)
-    pub fn getFloat(self: *const Ini, key: []const u8) !f64 {
+    /// Returns 0.0 if key not found
+    pub fn getFloat(self: *const Ini, key: []const u8) f64 {
         if (self.getItem(key)) |item| {
-            return item.asFloat();
+            return item.asFloat() catch 0.0;
         }
-        return error.KeyNotFound;
+        return 0.0;
     }
 
     /// Set a value (supports <section>.<key> syntax)
@@ -745,7 +802,7 @@ pub const Ini = struct {
                         .key = item.key,
                         .value = value,
                         .datatype = DataType.infer(value),
-                        .flags = item.flags,
+                        .flags = item.flags orelse .none,
                         .title = item.title,
                         .description = item.description,
                         .default = item.default,
@@ -763,7 +820,9 @@ pub const Ini = struct {
 
                     // 先分配新内存，成功后再释放旧内存，避免错误时悬空指针
                     const new_value = try self.allocator.dupe(u8, final_value);
-                    self.allocator.free(item.value);
+                    if (item.value) |old_value| {
+                        self.allocator.free(old_value);
+                    }
                     item.value = new_value;
                     // datatype保持不变，确保类型一致性
                     // title、description、key自动保留，无需处理
@@ -775,12 +834,7 @@ pub const Ini = struct {
                     }
 
                     // 创建临时 Item 用于添加（类型推断）
-                    var temp_item = try Item.initWithType(
-                        self.allocator,
-                        global_key,
-                        final_value,
-                        DataType.infer(final_value)
-                    );
+                    var temp_item = try Item.initWithType(self.allocator, global_key, final_value, DataType.infer(final_value));
                     defer temp_item.deinit(self.allocator);
 
                     // 先校验再设置（使用临时 item）
@@ -860,114 +914,259 @@ pub const Ini = struct {
         }
     }
 
+    /// 部分更新 Item 字段（supports <section>.<key> syntax）
+    /// 只更新非 null 字段，null 字段保持原值不变
+    /// Key 不存在时返回 error.KeyNotFound
+    pub fn updateItem(self: *Ini, key: []const u8, item: Item) Error!void {
+        switch (parseKey(key)) {
+            .section_key => |parsed| {
+                const section = try self.getOrCreateSectionInternal(parsed.section);
+                if (section.items.getPtr(parsed.key)) |existing_item| {
+                    try self.updateItemFields(existing_item, item);
+                } else {
+                    return error.KeyNotFound;
+                }
+            },
+            .global => |global_key| {
+                if (self.items.getPtr(global_key)) |existing_item| {
+                    try self.updateItemFields(existing_item, item);
+                } else {
+                    return error.KeyNotFound;
+                }
+            },
+        }
+    }
+
+    /// addItem 的别名函数
+    /// 语义上更清晰：设置 Item（添加或更新）
+    pub const setItem = addItem;
+
+    /// 为 addItem 操作推断数据类型
+    /// 当 value 可用时返回推断的类型，否则返回 .string
+    fn inferDataTypeForAddItem(value: ?[]const u8) DataType {
+        if (value) |v| {
+            return DataType.infer(v);
+        }
+        return .string; // null 值默认为 string
+    }
+
     /// Add a complete Item object (supports <section>.<key> syntax)
     /// Unlike set(key, value) which accepts a string value and infers type,
     /// addItem accepts a pre-configured Item object (with explicit type and documentation)
     ///
     /// This method performs a deep copy of the Item object.
     /// The caller is still responsible for deinitializing the original Item.
-    pub fn addItem(self: *Ini, key: []const u8, item: Item) Allocator.Error!void {
+    pub fn addItem(self: *Ini, key: []const u8, item: Item) Error!void {
         switch (parseKey(key)) {
             .section_key => |parsed| {
                 // Get or create section
                 const section = try self.getOrCreateSectionInternal(parsed.section);
 
-                // Remove old Item if exists
-                if (section.items.fetchRemove(parsed.key)) |kv| {
-                    const old_item = kv.value;
-                    // Call deinit to free old Item's resources (except key, owned by HashMap)
-                    @constCast(&old_item).deinitWithoutKey(self.allocator);
-                    self.allocator.free(kv.key);
+                // Check if Item exists and update it
+                if (section.items.getPtr(parsed.key)) |existing_item| {
+                    // UPDATE EXISTING ITEM - 非空更新
+                    try self.updateItemFields(existing_item, item);
+                } else {
+                    // CREATE NEW ITEM - keep existing deep copy logic
+                    // Create new Item - key ownership transferred to HashMap later
+                    const value_copy = if (item.value) |v| try self.allocator.dupe(u8, v) else "";
+                    const key_copy = try self.allocator.dupe(u8, parsed.key);
+                    errdefer self.allocator.free(key_copy);
+
+                    // 确定数据类型：未指定时自动推断
+                    const final_datatype = if (item.datatype == null or item.datatype == .string)
+                        inferDataTypeForAddItem(item.value)
+                    else
+                        item.datatype;
+
+                    const new_item = Item{
+                        .key = undefined, // Will be set to HashMap key after put
+                        .value = value_copy,
+                        .datatype = final_datatype,
+                        .flags = item.flags, // 复制 flags
+                        .title = if (item.title) |title| try self.allocator.dupe(u8, title) else null,
+                        .description = if (item.description) |desc| try self.allocator.dupe(u8, desc) else null,
+                        .default = if (item.default) |def| try self.allocator.dupe(u8, def) else null,
+                        .choices = if (item.choices) |items| blk: {
+                            var array_copy = try self.allocator.alloc([]const u8, items.len);
+                            errdefer self.allocator.free(array_copy);
+                            for (items, 0..) |elem, i| {
+                                array_copy[i] = try self.allocator.dupe(u8, elem);
+                            }
+                            break :blk array_copy;
+                        } else null,
+                        .converter = item.converter,
+                        .validators = if (item.validators) |names| blk: {
+                            var array_copy = try self.allocator.alloc([]const u8, names.len);
+                            errdefer self.allocator.free(array_copy);
+                            for (names, 0..) |elem, i| {
+                                array_copy[i] = try self.allocator.dupe(u8, elem);
+                            }
+                            break :blk array_copy;
+                        } else null,
+                    };
+
+                    // Put in HashMap - this creates the key copy
+                    try section.items.put(key_copy, new_item);
+
+                    // Set the Item's key pointer to point to HashMap's key
+                    const stored_item = section.items.getPtr(key_copy).?;
+                    stored_item.key = key_copy;
                 }
-
-                // Create new Item - key ownership transferred to HashMap later
-                const value_copy = try self.allocator.dupe(u8, item.value);
-
-                const new_item = Item{
-                    .key = undefined, // Will be set to HashMap key after put
-                    .value = value_copy,
-                    .datatype = item.datatype,
-                    .flags = item.flags, // 复制 flags
-                    .title = if (item.title) |title| try self.allocator.dupe(u8, title) else null,
-                    .description = if (item.description) |desc| try self.allocator.dupe(u8, desc) else null,
-                    .default = if (item.default) |def| try self.allocator.dupe(u8, def) else null,
-                    .choices = if (item.choices) |items| blk: {
-                        var array_copy = try self.allocator.alloc([]const u8, items.len);
-                        errdefer self.allocator.free(array_copy);
-                        for (items, 0..) |elem, i| {
-                            array_copy[i] = try self.allocator.dupe(u8, elem);
-                        }
-                        break :blk array_copy;
-                    } else null,
-                    .converter = item.converter,
-                    .validators = if (item.validators) |names| blk: {
-                        var array_copy = try self.allocator.alloc([]const u8, names.len);
-                        errdefer self.allocator.free(array_copy);
-                        for (names, 0..) |elem, i| {
-                            array_copy[i] = try self.allocator.dupe(u8, elem);
-                        }
-                        break :blk array_copy;
-                    } else null,
-                };
-
-                // Put in HashMap - this creates the key copy
-                const key_copy = try self.allocator.dupe(u8, parsed.key);
-                try section.items.put(key_copy, new_item);
-
-                // Set the Item's key pointer to point to HashMap's key
-                // (they now share the same allocation)
-                const stored_item = section.items.getPtr(key_copy).?;
-                stored_item.key = key_copy;
             },
             .global => |global_key| {
-                // Remove old Item if exists
-                if (self.items.fetchRemove(global_key)) |kv| {
-                    const old_item = kv.value;
-                    // Call deinit to free old Item's resources (except key, owned by HashMap)
-                    @constCast(&old_item).deinitWithoutKey(self.allocator);
-                    self.allocator.free(kv.key);
+                // Check if Item exists and update it
+                if (self.items.getPtr(global_key)) |existing_item| {
+                    // UPDATE EXISTING ITEM - 非空更新
+                    try self.updateItemFields(existing_item, item);
+                } else {
+                    // CREATE NEW ITEM - keep existing deep copy logic
+                    const value_copy = if (item.value) |v| try self.allocator.dupe(u8, v) else "";
+                    const key_copy = try self.allocator.dupe(u8, global_key);
+                    errdefer self.allocator.free(key_copy);
+
+                    // 确定数据类型：未指定时自动推断
+                    const final_datatype = if (item.datatype == null or item.datatype == .string)
+                        inferDataTypeForAddItem(item.value)
+                    else
+                        item.datatype;
+
+                    const new_item = Item{
+                        .key = undefined, // Will be set to HashMap key after put
+                        .value = value_copy,
+                        .datatype = final_datatype,
+                        .flags = item.flags, // 复制 flags
+                        .title = if (item.title) |title| try self.allocator.dupe(u8, title) else null,
+                        .description = if (item.description) |desc| try self.allocator.dupe(u8, desc) else null,
+                        .default = if (item.default) |def| try self.allocator.dupe(u8, def) else null,
+                        .choices = if (item.choices) |items| blk: {
+                            var array_copy = try self.allocator.alloc([]const u8, items.len);
+                            errdefer self.allocator.free(array_copy);
+                            for (items, 0..) |elem, i| {
+                                array_copy[i] = try self.allocator.dupe(u8, elem);
+                            }
+                            break :blk array_copy;
+                        } else null,
+                        .converter = item.converter,
+                        .validators = if (item.validators) |names| blk: {
+                            var array_copy = try self.allocator.alloc([]const u8, names.len);
+                            errdefer self.allocator.free(array_copy);
+                            for (names, 0..) |elem, i| {
+                                array_copy[i] = try self.allocator.dupe(u8, elem);
+                            }
+                            break :blk array_copy;
+                        } else null,
+                    };
+
+                    // Put in HashMap - this creates the key copy
+                    try self.items.put(key_copy, new_item);
+
+                    // Set the Item's key pointer to point to HashMap's key
+                    const stored_item = self.items.getPtr(key_copy).?;
+                    stored_item.key = key_copy;
                 }
-
-                // Create new Item - key ownership transferred to HashMap later
-                const value_copy = try self.allocator.dupe(u8, item.value);
-
-                const new_item = Item{
-                    .key = undefined, // Will be set to HashMap key after put
-                    .value = value_copy,
-                    .datatype = item.datatype,
-                    .flags = item.flags, // 复制 flags
-                    .title = if (item.title) |title| try self.allocator.dupe(u8, title) else null,
-                    .description = if (item.description) |desc| try self.allocator.dupe(u8, desc) else null,
-                    .default = if (item.default) |def| try self.allocator.dupe(u8, def) else null,
-                    .choices = if (item.choices) |items| blk: {
-                        var array_copy = try self.allocator.alloc([]const u8, items.len);
-                        errdefer self.allocator.free(array_copy);
-                        for (items, 0..) |elem, i| {
-                            array_copy[i] = try self.allocator.dupe(u8, elem);
-                        }
-                        break :blk array_copy;
-                    } else null,
-                    .converter = item.converter,
-                    .validators = if (item.validators) |names| blk: {
-                        var array_copy = try self.allocator.alloc([]const u8, names.len);
-                        errdefer self.allocator.free(array_copy);
-                        for (names, 0..) |elem, i| {
-                            array_copy[i] = try self.allocator.dupe(u8, elem);
-                        }
-                        break :blk array_copy;
-                    } else null,
-                };
-
-                // Put in HashMap - this creates the key copy
-                const key_copy = try self.allocator.dupe(u8, global_key);
-                try self.items.put(key_copy, new_item);
-
-                // Set the Item's key pointer to point to HashMap's key
-                // (they now share the same allocation)
-                const stored_item = self.items.getPtr(key_copy).?;
-                stored_item.key = key_copy;
             },
         }
+    }
+
+    /// 更新已存在 Item 的字段（只更新非 null 字段）
+    /// 所有字段（包括 value, datatype, flags）只在非 null 时更新
+    /// null 字段保持原值不变
+    fn updateItemFields(self: *Ini, existing_item: *Item, new_item: Item) Error!void {
+        // 1. 更新 value（仅当非 null 时）
+        if (new_item.value) |new_value| {
+            // 应用转换器
+            var final_value = new_value;
+            if (existing_item.converter) |converter| {
+                final_value = converter.from(new_value) catch |err| switch (err) {
+                    error.Overflow => return error.Overflow,
+                    else => return err,
+                };
+            } else if (new_item.converter) |converter| {
+                final_value = converter.from(new_value) catch |err| switch (err) {
+                    error.Overflow => return error.Overflow,
+                    else => return err,
+                };
+            }
+
+            const value_copy = try self.allocator.dupe(u8, final_value);
+            if (existing_item.value) |old_value| {
+                self.allocator.free(old_value);
+            }
+            existing_item.value = value_copy;
+        }
+
+        // 2. 更新 datatype（更新时总是重新推断）
+        if (new_item.value) |new_value| {
+            // 更新 value 时总是重新推断类型（与 set 方法保持一致）
+            existing_item.datatype = inferDataTypeForAddItem(new_value);
+        } else if (new_item.datatype) |new_datatype| {
+            // 只更新 datatype 但不更新 value 的情况
+            if (new_datatype != .string) {
+                // 保留显式指定的非 string 类型
+                existing_item.datatype = new_datatype;
+            } else {
+                // string/null 表示需要推断
+                const value_for_inference = existing_item.value;
+                if (value_for_inference) |v| {
+                    existing_item.datatype = inferDataTypeForAddItem(v);
+                } else {
+                    existing_item.datatype = .string;
+                }
+            }
+        }
+
+        // 3. 更新 flags（仅当非 null 时）
+        if (new_item.flags) |new_flags| {
+            existing_item.flags = new_flags;
+        }
+
+        // 4. 更新 Optional 字段（仅当非 null 时）
+        if (new_item.title) |new_title| {
+            try self.updateOptionalField(&existing_item.title, new_title);
+        }
+        if (new_item.description) |new_desc| {
+            try self.updateOptionalField(&existing_item.description, new_desc);
+        }
+        if (new_item.default) |new_default| {
+            try self.updateOptionalField(&existing_item.default, new_default);
+        }
+        if (new_item.choices) |new_choices| {
+            try self.updateArrayField(&existing_item.choices, new_choices);
+        }
+        if (new_item.validators) |new_validators| {
+            try self.updateArrayField(&existing_item.validators, new_validators);
+        }
+
+        // 5. 更新 converter（仅当非 null 时）
+        if (new_item.converter) |new_converter| {
+            existing_item.converter = new_converter;
+        }
+    }
+
+    /// 辅助方法：更新 Optional 字段
+    fn updateOptionalField(self: *Ini, field: *?[]const u8, new_value: []const u8) Allocator.Error!void {
+        if (field.*) |old_value| {
+            self.allocator.free(old_value);
+        }
+        field.* = try self.allocator.dupe(u8, new_value);
+    }
+
+    /// 辅助方法：更新数组字段
+    fn updateArrayField(self: *Ini, field: *?[][]const u8, new_value: [][]const u8) Allocator.Error!void {
+        // 释放旧数组
+        if (field.*) |old_array| {
+            for (old_array) |item| self.allocator.free(item);
+            self.allocator.free(old_array);
+        }
+
+        // 深拷贝新数组
+        var array_copy = try self.allocator.alloc([]const u8, new_value.len);
+        errdefer self.allocator.free(array_copy);
+        for (new_value, 0..) |elem, i| {
+            array_copy[i] = try self.allocator.dupe(u8, elem);
+        }
+        field.* = array_copy;
     }
 
     /// Internal helper: Get or create a section (as nested Ini)
@@ -985,7 +1184,7 @@ pub const Ini = struct {
             .items = StringHashMap(Item).init(self.allocator),
             .sections = StringHashMap(Ini).init(self.allocator),
             .options = self.options, // 继承父 Ini 的选项
-            .original_file_path = null, // section 不继承原始文件路径
+            .file = null, // section 不继承原始文件路径
             .validators = @import("validate.zig").ValidatorRegistry.init(self.allocator),
         };
 
@@ -993,25 +1192,51 @@ pub const Ini = struct {
         return self.sections.getPtr(section_name).?;
     }
 
-    /// 遍历所有 Item（全局 + 所有 sections）
-    /// context: 用户提供的上下文指针（支持计数器等外部变量修改）
-    /// callback: 回调函数，接收 context 指针、section (null 表示全局) 和 Item 指针
-    pub fn forEach(self: *const Ini, context_ptr: anytype, comptime callback: anytype) void {
-        // 1. 遍历全局 items
-        var item_iter = self.items.iterator();
-        while (item_iter.next()) |entry| {
-            callback(context_ptr, null, entry.value_ptr);
-        }
-
-        // 2. 遍历所有 sections
-        var section_iter = self.sections.iterator();
-        while (section_iter.next()) |section_entry| {
-            const section_name = section_entry.key_ptr.*;
-            var section_item_iter = section_entry.value_ptr.items.iterator();
-            while (section_item_iter.next()) |item_entry| {
-                callback(context_ptr, section_name, item_entry.value_ptr);
+    /// 内部方法：迭代指定 section 的配置项
+    /// section_name: null 表示全局配置项，否则为指定的 section 名称
+    /// context: 外部传入的上下文参数，将被传递给回调函数
+    /// callback: 外部传入的回调函数，接收 Item 指针、section 名称和上下文参数
+    fn forEachSection(self: *const Ini, section_name: ?[]const u8, callback: anytype, context: anytype) void {
+        if (section_name) |name| {
+            // 迭代指定 section 的配置项
+            if (self.sections.get(name)) |section| {
+                var item_iter = section.items.iterator();
+                while (item_iter.next()) |entry| {
+                    callback(entry.value_ptr, name, context);
+                }
+            }
+        } else {
+            // 迭代全局配置项
+            var item_iter = self.items.iterator();
+            while (item_iter.next()) |entry| {
+                callback(entry.value_ptr, null, context);
             }
         }
+    }
+
+    /// 遍历指定范围的 Item
+    /// section: 迭代范围（"*"=全部，""=全局，"section_name"=指定section）
+    /// callback: 外部传入的回调函数，接收 Item 指针、section 名称（null 表示全局）和上下文参数
+    /// context: 传递给回调函数的上下文参数（可以是任何类型的指针）
+    pub fn forEach(self: *const Ini, section: []const u8, callback: anytype, context: anytype) void {
+        // 情况1: 迭代所有配置项（全局 + 所有 sections）
+        if (std.mem.eql(u8, section, "*")) {
+            // 1. 迭代全局 items
+            self.forEachSection(null, callback, context);
+
+            // 2. 迭代所有 sections
+            var section_iter = self.sections.iterator();
+            while (section_iter.next()) |section_entry| {
+                const section_name = section_entry.key_ptr.*;
+                self.forEachSection(section_name, callback, context);
+            }
+            return;
+        }
+
+        // 情况2&3: 迭代全局配置项或指定 section
+        // 如果 section 为空字符串，则传入 null（表示全局）
+        // 否则传入指定的 section 名称
+        self.forEachSection(if (section.len == 0) null else section, callback, context);
     }
 };
 
@@ -1168,7 +1393,7 @@ const Parser = struct {
         };
 
         // 设置文档注释（包含 title 和 description）
-        try self.setItemDocumentation(&item);
+        try self.setItemDocumentation(@constCast(&item));
 
         // 应用转换器（如果存在）
         if (self.ini.getConverter(key_full)) |conv| {
@@ -1512,10 +1737,7 @@ const Parser = struct {
 
             // 将注释累积到 pending_comments
             if (comment_trimmed.len > 0) {
-                try parser.pending_comments.append(
-                    parser.allocator,
-                    try parser.allocator.dupe(u8, comment_trimmed)
-                );
+                try parser.pending_comments.append(parser.allocator, try parser.allocator.dupe(u8, comment_trimmed));
             }
 
             // 返回值部分（注释符之前的内容）
@@ -1530,7 +1752,7 @@ const Parser = struct {
 // Tests
 test "basic ini parsing" {
     const allocator = std.testing.allocator;
-    var ini = Ini.init(allocator);
+    var ini = Ini.default(allocator);
     defer ini.deinit();
 
     const content =
@@ -1549,17 +1771,17 @@ test "basic ini parsing" {
     try ini.loadFromString(content);
 
     // Test global key
-    try std.testing.expectEqualStrings("global_value", try ini.get("global_key"));
+    try std.testing.expectEqualStrings("global_value", ini.get("global_key"));
 
     // Test section keys using section.key syntax
-    try std.testing.expectEqualStrings("value1", try ini.get("section1.key1"));
-    try std.testing.expectEqualStrings("quoted value", try ini.get("section1.key2"));
-    try std.testing.expectEqualStrings("value3", try ini.get("section2.key3"));
+    try std.testing.expectEqualStrings("value1", ini.get("section1.key1"));
+    try std.testing.expectEqualStrings("quoted value", ini.get("section1.key2"));
+    try std.testing.expectEqualStrings("value3", ini.get("section2.key3"));
 }
 
 test "save and load" {
     const allocator = std.testing.allocator;
-    var ini = Ini.init(allocator);
+    var ini = Ini.default(allocator);
     defer ini.deinit();
 
     try ini.set("global", "value");
@@ -1569,18 +1791,18 @@ test "save and load" {
     const string = try ini.saveToString(allocator);
     defer allocator.free(string);
 
-    var ini2 = Ini.init(allocator);
+    var ini2 = Ini.default(allocator);
     defer ini2.deinit();
     try ini2.loadFromString(string);
 
-    try std.testing.expectEqualStrings("value", try ini2.get("global"));
-    try std.testing.expectEqualStrings("value1", try ini2.get("section1.key1"));
-    try std.testing.expectEqualStrings("value2", try ini2.get("section1.key2"));
+    try std.testing.expectEqualStrings("value", ini2.get("global"));
+    try std.testing.expectEqualStrings("value1", ini2.get("section1.key1"));
+    try std.testing.expectEqualStrings("value2", ini2.get("section1.key2"));
 }
 
 test "has() method" {
     const allocator = std.testing.allocator;
-    var ini = Ini.init(allocator);
+    var ini = Ini.default(allocator);
     defer ini.deinit();
 
     try ini.set("global", "value");
@@ -1602,7 +1824,7 @@ test "has() method" {
 
 test "remove() method" {
     const allocator = std.testing.allocator;
-    var ini = Ini.init(allocator);
+    var ini = Ini.default(allocator);
     defer ini.deinit();
 
     try ini.set("global", "value");
@@ -1625,7 +1847,7 @@ test "remove() method" {
 
 test "add() method with Item" {
     const allocator = std.testing.allocator;
-    var ini = Ini.init(allocator);
+    var ini = Ini.default(allocator);
     defer ini.deinit();
 
     // Create Items with explicit types
@@ -1635,7 +1857,7 @@ test "add() method with Item" {
     // Add to global (deep copy is made)
     try ini.addItem("count", item);
     try std.testing.expect(ini.hasItem("count"));
-    try std.testing.expectEqual(@as(i64, 42), ini.getNumber("count") catch unreachable);
+    try std.testing.expectEqual(@as(i64, 42), ini.getNumber("count"));
 
     // Add to section
     var item2 = try Item.initWithType(allocator, "flag", "true", DataType.boolean);
@@ -1643,19 +1865,19 @@ test "add() method with Item" {
 
     try ini.addItem("settings.enabled", item2);
     try std.testing.expect(ini.hasItem("settings.enabled"));
-    try std.testing.expectEqual(true, ini.getBoolean("settings.enabled") catch unreachable);
+    try std.testing.expectEqual(true, ini.getBoolean("settings.enabled"));
 
     // Test replacing existing key
     var item3 = try Item.initWithType(allocator, "test", "100", DataType.number);
     defer item3.deinit(allocator);
 
     try ini.addItem("count", item3);
-    try std.testing.expectEqual(@as(i64, 100), ini.getNumber("count") catch unreachable);
+    try std.testing.expectEqual(@as(i64, 100), ini.getNumber("count"));
 }
 
 test "has() method with section support" {
     const allocator = std.testing.allocator;
-    var ini = Ini.init(allocator);
+    var ini = Ini.default(allocator);
     defer ini.deinit();
 
     try ini.set("global", "value");
@@ -1684,7 +1906,7 @@ test "has() method with section support" {
 
 test "remove() method with section support" {
     const allocator = std.testing.allocator;
-    var ini = Ini.init(allocator);
+    var ini = Ini.default(allocator);
     defer ini.deinit();
 
     try ini.set("global", "value");
@@ -1715,7 +1937,7 @@ test "remove() method with section support" {
 
 test "choices 数组解析" {
     const allocator = std.testing.allocator;
-    var ini = Ini.init(allocator);
+    var ini = Ini.default(allocator);
     defer ini.deinit();
 
     const content =
@@ -1736,7 +1958,7 @@ test "choices 数组解析" {
 
 test "choices 数组序列化" {
     const allocator = std.testing.allocator;
-    var ini = Ini.init(allocator);
+    var ini = Ini.default(allocator);
     defer ini.deinit();
 
     // 创建带 choices 的 Item
@@ -1766,7 +1988,7 @@ test "choices 数组序列化" {
 
 test "内置 choices 校验器" {
     const allocator = std.testing.allocator;
-    var ini = Ini.init(allocator);
+    var ini = Ini.default(allocator);
     defer ini.deinit();
 
     const content =
@@ -1778,7 +2000,7 @@ test "内置 choices 校验器" {
 
     // 测试有效值
     try ini.set("color", "green");
-    try std.testing.expectEqualStrings("green", try ini.get("color"));
+    try std.testing.expectEqualStrings("green", ini.get("color"));
 
     // 测试无效值（应该失败）
     try std.testing.expectError(error.InvalidValue, ini.set("color", "yellow"));
@@ -1786,7 +2008,7 @@ test "内置 choices 校验器" {
 
 test "添加自定义校验器" {
     const allocator = std.testing.allocator;
-    var ini = Ini.init(allocator);
+    var ini = Ini.default(allocator);
     defer ini.deinit();
 
     // 创建自定义校验器
@@ -1814,7 +2036,7 @@ test "添加自定义校验器" {
 
     // 测试有效值
     try ini.set("port", "8080");
-    try std.testing.expectEqualStrings("8080", try ini.get("port"));
+    try std.testing.expectEqualStrings("8080", ini.get("port"));
 
     // 测试无效值（应该失败）
     try std.testing.expectError(error.InvalidValue, ini.set("port", "100"));
@@ -1822,7 +2044,7 @@ test "添加自定义校验器" {
 
 test "validators API - add 和 remove" {
     const allocator = std.testing.allocator;
-    var ini = Ini.init(allocator);
+    var ini = Ini.default(allocator);
     defer ini.deinit();
 
     // 创建测试校验器
@@ -1847,15 +2069,15 @@ test "validators API - add 和 remove" {
     }
 
     // 测试两个校验器都生效
-    try std.testing.expectEqualStrings("ok", try ini.get("key"));
+    try std.testing.expectEqualStrings("ok", ini.get("key"));
 
     // 移除特定校验器
     ini.validators.remove("test1");
-    try std.testing.expectEqualStrings("ok", try ini.get("key"));
+    try std.testing.expectEqualStrings("ok", ini.get("key"));
 
     // 移除另一个校验器
     ini.validators.remove("test2");
-    try std.testing.expectEqualStrings("ok", try ini.get("key"));
+    try std.testing.expectEqualStrings("ok", ini.get("key"));
 
     // 清空 item 的 validators，这样就不会有命名验证器生效
     if (ini.items.getPtr("key")) |item| {
@@ -1872,7 +2094,7 @@ test "validators API - add 和 remove" {
 
 test "choices 校验器 + 自定义校验器组合" {
     const allocator = std.testing.allocator;
-    var ini = Ini.init(allocator);
+    var ini = Ini.default(allocator);
     defer ini.deinit();
 
     const content =
@@ -1917,7 +2139,7 @@ test "choices 校验器 + 自定义校验器组合" {
 // 转换器测试
 test "basic converter functionality" {
     const allocator = std.testing.allocator;
-    var ini = Ini.init(allocator);
+    var ini = Ini.default(allocator);
     defer ini.deinit();
 
     // 定义日志级别转换器
@@ -1958,20 +2180,19 @@ test "basic converter functionality" {
     if (ini.items.getPtr("log_level")) |item| {
         item.converter = &converter;
         // 手动应用转换到现有值
-        const current_value = item.value;
-        const converted = try converter.from(current_value);
-        ini.allocator.free(item.value);
-        item.value = try ini.allocator.dupe(u8, converted);
-        item.datatype = DataType.infer(converted);
+        if (item.value) |current_value| {
+            const converted = try converter.from(current_value);
+            ini.allocator.free(current_value);
+            item.value = try ini.allocator.dupe(u8, converted);
+            item.datatype = DataType.infer(converted);
+        }
     }
 
     // 验证转换后的值
-    const value = try ini.get("log_level");
+    const value = ini.get("log_level");
     try std.testing.expectEqualStrings("4", value);
-
     std.debug.print("  ✓ 转换器基本功能测试通过\n", .{});
 }
-
 test "Item.addValidator - 自动初始化" {
     // 使用 C allocator 来初始化 Item，与 addValidator/removeValidator 保持一致
     const allocator = std.heap.c_allocator;
@@ -2092,7 +2313,7 @@ test "Item.addValidator - 内存安全测试" {
 test "Item.addValidator - 完整使用流程" {
     // 使用 C allocator 来初始化 Ini，与 addValidator/removeValidator 保持一致
     const allocator = std.heap.c_allocator;
-    var ini = Ini.init(allocator);
+    var ini = Ini.default(allocator);
     defer ini.deinit();
 
     // 创建测试验证器
@@ -2133,7 +2354,7 @@ test "Item.addValidator - 完整使用流程" {
 
 test "行尾注释 - 基本功能" {
     const allocator = std.testing.allocator;
-    var ini = Ini.init(allocator);
+    var ini = Ini.default(allocator);
     defer ini.deinit();
 
     const content =
@@ -2145,14 +2366,14 @@ test "行尾注释 - 基本功能" {
     try ini.loadFromString(content);
 
     // 验证值正确解析（不含注释）
-    try std.testing.expectEqualStrings("8080", try ini.get("port"));
-    try std.testing.expectEqualStrings("localhost", try ini.get("host"));
-    try std.testing.expectEqualStrings("true", try ini.get("debug"));
+    try std.testing.expectEqualStrings("8080", ini.get("port"));
+    try std.testing.expectEqualStrings("localhost", ini.get("host"));
+    try std.testing.expectEqualStrings("true", ini.get("debug"));
 }
 
 test "行尾注释 - 注释符前后空格" {
     const allocator = std.testing.allocator;
-    var ini = Ini.init(allocator);
+    var ini = Ini.default(allocator);
     defer ini.deinit();
 
     const content =
@@ -2164,9 +2385,9 @@ test "行尾注释 - 注释符前后空格" {
     try ini.loadFromString(content);
 
     // 验证值正确提取
-    try std.testing.expectEqualStrings("8080", try ini.get("port"));
-    try std.testing.expectEqualStrings("localhost", try ini.get("host"));
-    try std.testing.expectEqualStrings("true", try ini.get("debug"));
+    try std.testing.expectEqualStrings("8080", ini.get("port"));
+    try std.testing.expectEqualStrings("localhost", ini.get("host"));
+    try std.testing.expectEqualStrings("true", ini.get("debug"));
 }
 
 test "行尾注释 - 注释中的元数据标记" {
@@ -2182,8 +2403,8 @@ test "行尾注释 - 注释中的元数据标记" {
     try ini.loadFromString(content);
 
     // 验证值正确解析
-    try std.testing.expectEqualStrings("8080", try ini.get("port"));
-    try std.testing.expectEqualStrings("localhost", try ini.get("host"));
+    try std.testing.expectEqualStrings("8080", ini.get("port"));
+    try std.testing.expectEqualStrings("localhost", ini.get("host"));
 
     // 验证 @title 和 @default 作为普通注释，不是元数据
     const port_item = ini.getItem("port").?;
@@ -2209,8 +2430,8 @@ test "行尾注释 - 引号内注释符" {
     try ini.loadFromString(content);
 
     // 验证引号内的注释符不被视为行尾注释
-    try std.testing.expectEqualStrings("hello # world", try ini.get("message"));
-    try std.testing.expectEqualStrings("C:/path;value", try ini.get("path"));
+    try std.testing.expectEqualStrings("hello # world", ini.get("message"));
+    try std.testing.expectEqualStrings("C:/path;value", ini.get("path"));
 
     // 验证真正的注释被累积
     const message_item = ini.getItem("message").?;
@@ -2235,8 +2456,8 @@ test "行尾注释 - 混合独立注释和行尾注释" {
     try ini.loadFromString(content);
 
     // 验证值正确解析
-    try std.testing.expectEqualStrings("8080", try ini.get("port"));
-    try std.testing.expectEqualStrings("localhost", try ini.get("host"));
+    try std.testing.expectEqualStrings("8080", ini.get("port"));
+    try std.testing.expectEqualStrings("localhost", ini.get("host"));
 
     // 验证注释被累积
     const port_item = ini.getItem("port").?;
@@ -2249,7 +2470,7 @@ test "行尾注释 - 混合独立注释和行尾注释" {
 
 test "行尾注释 - 多行值不支持行尾注释" {
     const allocator = std.testing.allocator;
-    var ini = Ini.init(allocator);
+    var ini = Ini.default(allocator);
     defer ini.deinit();
 
     const content =
@@ -2261,7 +2482,7 @@ test "行尾注释 - 多行值不支持行尾注释" {
     try ini.loadFromString(content);
 
     // 验证多行内容包含注释符
-    const value = try ini.get("memo");
+    const value = ini.get("memo");
     try std.testing.expect(std.mem.indexOf(u8, value, "#") != null);
     try std.testing.expect(std.mem.indexOf(u8, value, "#   x") != null);
     try std.testing.expect(std.mem.indexOf(u8, value, "#    y") != null);
@@ -2289,8 +2510,8 @@ test "行尾注释 - 保存和加载" {
     try ini2.loadFromString(saved);
 
     // 验证值正确保留
-    try std.testing.expectEqualStrings("8080", try ini2.get("port"));
-    try std.testing.expectEqualStrings("localhost", try ini2.get("host"));
+    try std.testing.expectEqualStrings("8080", ini2.get("port"));
+    try std.testing.expectEqualStrings("localhost", ini2.get("host"));
 
     // 验证注释被转换为独立注释行
     try std.testing.expect(std.mem.indexOf(u8, saved, "# 端口") != null);
@@ -2299,7 +2520,7 @@ test "行尾注释 - 保存和加载" {
 
 test "行尾注释 - section 内的行尾注释" {
     const allocator = std.testing.allocator;
-    var ini = Ini.init(allocator);
+    var ini = Ini.default(allocator);
     defer ini.deinit();
 
     const content =
@@ -2314,14 +2535,14 @@ test "行尾注释 - section 内的行尾注释" {
     try ini.loadFromString(content);
 
     // 验证 section 内的值正确解析
-    try std.testing.expectEqualStrings("localhost", try ini.get("database.host"));
-    try std.testing.expectEqualStrings("5432", try ini.get("database.port"));
-    try std.testing.expectEqualStrings("8080", try ini.get("server.port"));
+    try std.testing.expectEqualStrings("localhost", ini.get("database.host"));
+    try std.testing.expectEqualStrings("5432", ini.get("database.port"));
+    try std.testing.expectEqualStrings("8080", ini.get("server.port"));
 }
 
 test "行尾注释 - 空注释和空白注释" {
     const allocator = std.testing.allocator;
-    var ini = Ini.init(allocator);
+    var ini = Ini.default(allocator);
     defer ini.deinit();
 
     const content =
@@ -2333,14 +2554,14 @@ test "行尾注释 - 空注释和空白注释" {
     try ini.loadFromString(content);
 
     // 验证值正确解析
-    try std.testing.expectEqualStrings("8080", try ini.get("port"));
-    try std.testing.expectEqualStrings("localhost", try ini.get("host"));
-    try std.testing.expectEqualStrings("true", try ini.get("debug"));
+    try std.testing.expectEqualStrings("8080", ini.get("port"));
+    try std.testing.expectEqualStrings("localhost", ini.get("host"));
+    try std.testing.expectEqualStrings("true", ini.get("debug"));
 }
 
 test "行尾注释 - 分号和井号混合使用" {
     const allocator = std.testing.allocator;
-    var ini = Ini.init(allocator);
+    var ini = Ini.default(allocator);
     defer ini.deinit();
 
     const content =
@@ -2352,7 +2573,277 @@ test "行尾注释 - 分号和井号混合使用" {
     try ini.loadFromString(content);
 
     // 验证两种注释符都支持
-    try std.testing.expectEqualStrings("8080", try ini.get("port"));
-    try std.testing.expectEqualStrings("localhost", try ini.get("host"));
-    try std.testing.expectEqualStrings("true", try ini.get("debug"));
+    try std.testing.expectEqualStrings("8080", ini.get("port"));
+    try std.testing.expectEqualStrings("localhost", ini.get("host"));
+    try std.testing.expectEqualStrings("true", ini.get("debug"));
 }
+
+test "initWithItems - 基本初始化" {
+    const allocator = std.testing.allocator;
+
+    const items = [_]Item{
+        Item{ .key = "port", .value = "8080" },
+        Item{ .key = "host", .value = "localhost" },
+    };
+
+    var ini = try Ini.init(allocator, &items);
+    defer ini.deinit();
+
+    try std.testing.expectEqualStrings("8080", ini.get("port"));
+    try std.testing.expectEqualStrings("localhost", ini.get("host"));
+    try std.testing.expectEqual(@as(i64, 8080), ini.getNumber("port"));
+}
+
+test "initWithItems - section 语法支持" {
+    const allocator = std.testing.allocator;
+
+    const items = [_]Item{
+        Item{ .key = "database.host", .value = "localhost" },
+        Item{ .key = "database.port", .value = "5432" },
+        Item{ .key = "debug", .value = "true" },
+    };
+
+    var ini = try Ini.init(allocator, &items);
+    defer ini.deinit();
+
+    try std.testing.expectEqualStrings("localhost", ini.get("database.host"));
+    try std.testing.expectEqual(@as(i64, 5432), ini.getNumber("database.port"));
+    try std.testing.expectEqual(true, ini.getBoolean("debug"));
+}
+
+test "initWithItems - 内存安全" {
+    const allocator = std.testing.allocator;
+
+    // 创建包含完整元数据的 Items
+    var item1 = try Item.initWithType(allocator, "port", "8080", DataType.number);
+    defer item1.deinit(allocator);
+
+    var item2 = try Item.initWithType(allocator, "enabled", "true", DataType.boolean);
+    defer item2.deinit(allocator);
+
+    const items = [_]Item{ item1, item2 };
+
+    var ini = try Ini.init(allocator, &items);
+    defer ini.deinit();
+
+    // 验证深拷贝成功
+    try std.testing.expectEqualStrings("8080", ini.get("port"));
+    try std.testing.expectEqual(true, ini.getBoolean("enabled"));
+
+    // 原始 Items 仍然有效（调用者仍拥有它们）
+    try std.testing.expectEqualStrings("8080", item1.value.?);
+    try std.testing.expectEqualStrings("true", item2.value.?);
+}
+
+test "initWithItems - 缺少 key 错误" {
+    const allocator = std.testing.allocator;
+
+    const items = [_]Item{
+        Item{ .key = "valid", .value = "123" },
+        Item{ .key = null, .value = "invalid" }, // 缺少 key
+    };
+
+    const result = Ini.init(allocator, &items);
+    try std.testing.expectError(error.MissingKey, result);
+}
+
+test "initWithItems - 空数组" {
+    const allocator = std.testing.allocator;
+
+    const items = [_]Item{};
+    var ini = try Ini.init(allocator, &items);
+    defer ini.deinit();
+
+    // 应该创建空的 Ini
+    try std.testing.expectEqual(@as(usize, 0), ini.items.count());
+}
+
+test "initWithItems - 部分失败回滚" {
+    const allocator = std.testing.allocator;
+
+    // 创建会中途失败的 Items
+    const items = [_]Item{
+        Item{ .key = "item1", .value = "value1" },
+        Item{ .key = null, .value = "invalid" }, // 这会失败
+        Item{ .key = "item3", .value = "value3" },
+    };
+
+    const result = Ini.init(allocator, &items);
+    try std.testing.expectError(error.MissingKey, result);
+}
+
+test "initWithItems - 完整工作流" {
+    const allocator = std.testing.allocator;
+
+    // 1. 使用 initWithItems 创建配置
+    const items = [_]Item{
+        Item{ .key = "app.name", .value = "MyApp" },
+        Item{ .key = "app.version", .value = "1.0.0" },
+        Item{ .key = "server.port", .value = "8080" },
+        Item{ .key = "server.host", .value = "0.0.0.0" },
+        Item{ .key = "debug.enabled", .value = "true" },
+    };
+
+    var ini = try Ini.init(allocator, &items);
+    defer ini.deinit();
+
+    // 2. 验证所有值正确
+    try std.testing.expectEqualStrings("MyApp", ini.get("app.name"));
+    try std.testing.expectEqualStrings("1.0.0", ini.get("app.version"));
+    try std.testing.expectEqual(@as(i64, 8080), ini.getNumber("server.port"));
+    try std.testing.expectEqualStrings("0.0.0.0", ini.get("server.host"));
+    try std.testing.expectEqual(true, ini.getBoolean("debug.enabled"));
+
+    // 3. 验证可以继续操作
+    try ini.set("app.name", "UpdatedApp");
+    try std.testing.expectEqualStrings("UpdatedApp", ini.get("app.name"));
+
+    // 4. 验证序列化正确
+    const output = try ini.saveToString(allocator);
+    defer allocator.free(output);
+
+    // 验证 section 格式正确（注意：序列化时 key = value 之间有空格）
+    try std.testing.expect(std.mem.indexOf(u8, output, "[app]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "name = UpdatedApp") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "[server]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "port = 8080") != null);
+}
+
+test "addItem - 新 Item 自动推断类型（datatype 为 null）" {
+    const allocator = std.testing.allocator;
+    var ini = Ini.default(allocator);
+    defer ini.deinit();
+
+    const item = Item{
+        .key = "count",
+        .value = "42",
+        .datatype = null, // 未指定类型
+    };
+    try ini.addItem("count", item);
+
+    const stored = ini.items.get("count").?;
+    try std.testing.expectEqual(DataType.number, stored.datatype.?);
+    try std.testing.expectEqual(@as(i64, 42), ini.getNumber("count"));
+}
+
+test "addItem - 新 Item 自动推断类型（datatype 为 string）" {
+    const allocator = std.testing.allocator;
+    var ini = Ini.default(allocator);
+    defer ini.deinit();
+
+    const item = Item{
+        .key = "enabled",
+        .value = "true",
+        .datatype = DataType.string, // 显式设为 string
+    };
+    try ini.addItem("enabled", item);
+
+    const stored = ini.items.get("enabled").?;
+    try std.testing.expectEqual(DataType.boolean, stored.datatype.?);
+    try std.testing.expectEqual(true, ini.getBoolean("enabled"));
+}
+
+test "addItem - 新 Item 保留显式非 string 类型" {
+    const allocator = std.testing.allocator;
+    var ini = Ini.default(allocator);
+    defer ini.deinit();
+
+    const item = Item{
+        .key = "port",
+        .value = "8080",
+        .datatype = DataType.number, // 显式指定为 number
+    };
+    try ini.addItem("port", item);
+
+    const stored = ini.items.get("port").?;
+    try std.testing.expectEqual(DataType.number, stored.datatype.?);
+    try std.testing.expectEqual(@as(i64, 8080), ini.getNumber("port"));
+}
+
+test "addItem - 已有 Item 双方都为 null 时推断" {
+    const allocator = std.testing.allocator;
+    var ini = Ini.default(allocator);
+    defer ini.deinit();
+
+    // 创建初始 Item（datatype 为 null）
+    const item1 = Item{
+        .key = "debug",
+        .value = "false",
+        .datatype = null,
+    };
+    try ini.addItem("debug", item1);
+
+    // 更新为数值（新 datatype 也为 null，应该推断）
+    const item2 = Item{
+        .key = "debug",
+        .value = "123",
+        .datatype = null,
+    };
+    try ini.addItem("debug", item2);
+
+    const stored = ini.items.get("debug").?;
+    try std.testing.expectEqual(DataType.number, stored.datatype.?);
+    try std.testing.expectEqual(@as(i64, 123), ini.getNumber("debug"));
+}
+
+test "addItem - 已有 Item 保留新类型" {
+    const allocator = std.testing.allocator;
+    var ini = Ini.default(allocator);
+    defer ini.deinit();
+
+    // 创建初始 Item（显式 boolean 类型）
+    const item1 = Item{
+        .key = "flag",
+        .value = "true",
+        .datatype = DataType.boolean,
+    };
+    try ini.addItem("flag", item1);
+
+    // 更新为字符串（新 datatype 为 string）
+    const item2 = Item{
+        .key = "flag",
+        .value = "new_value",
+        .datatype = DataType.string,
+    };
+    try ini.addItem("flag", item2);
+
+    const stored = ini.items.get("flag").?;
+    try std.testing.expectEqual(DataType.string, stored.datatype.?);
+    try std.testing.expectEqualStrings("new_value", stored.value.?);
+}
+
+test "addItem - null 值设为 string 类型" {
+    const allocator = std.testing.allocator;
+    var ini = Ini.default(allocator);
+    defer ini.deinit();
+
+    const item = Item{
+        .key = "empty",
+        .value = null, // 值为 null
+        .datatype = null,
+    };
+    try ini.addItem("empty", item);
+
+    const stored = ini.items.get("empty").?;
+    try std.testing.expectEqual(DataType.string, stored.datatype.?);
+}
+
+test "addItem - section 语法自动推断" {
+    const allocator = std.testing.allocator;
+    var ini = Ini.default(allocator);
+    defer ini.deinit();
+
+    const item = Item{
+        .key = "database.port",
+        .value = "5432",
+        .datatype = null,
+    };
+    try ini.addItem("database.port", item);
+
+    try std.testing.expectEqual(@as(i64, 5432), ini.getNumber("database.port"));
+    const stored = ini.sections.get("database").?.items.get("port");
+    if (stored) |s| {
+        try std.testing.expectEqual(DataType.number, s.datatype.?);
+    }
+}
+

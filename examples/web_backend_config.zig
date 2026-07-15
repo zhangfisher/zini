@@ -4,8 +4,8 @@
 //! 涵盖了库的所有核心功能和高级特性
 
 const std = @import("std");
-const Ini = @import("zini").Ini;
-const IniOptions = @import("zini").IniOptions;
+const Ini = @import("../src/ini.zig").Ini;
+const IniOptions = @import("../src/ini.zig").IniOptions;
 
 pub fn main() !void {
     const allocator = std.heap.page_allocator;

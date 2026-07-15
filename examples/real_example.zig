@@ -2,8 +2,8 @@
 //! 演示如何使用 IniOptions 进行内存优化和自动注释保留
 
 const std = @import("std");
-const Ini = @import("zini").Ini;
-const IniOptions = @import("zini").IniOptions;
+const Ini = @import("../src/ini.zig").Ini;
+const IniOptions = @import("../src/ini.zig").IniOptions;
 
 pub fn main() !void {
     var gpa = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -21,7 +21,7 @@ pub fn main() !void {
         std.debug.print("--- 场景1：默认API（推荐）---\n", .{});
         std.debug.print("优点：内存优化 + 自动注释保留\n\n", .{});
 
-        var ini = Ini.init(allocator);
+        var ini = Ini.default(allocator);
         defer ini.deinit();
 
         // 加载配置文件

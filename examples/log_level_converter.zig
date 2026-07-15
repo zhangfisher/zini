@@ -45,7 +45,7 @@ pub fn main() !void {
     std.debug.print("  ✓ to:   将 1/2/3/4 转换回 debug/info/warn/error\n\n", .{});
 
     // 2. 创建 Ini 实例
-    var ini = Ini.init(allocator);
+    var ini = Ini.default(allocator);
     defer ini.deinit();
 
     // 3. 配置文件内容（人类友好的值）
@@ -72,7 +72,7 @@ pub fn main() !void {
         const converted = try converter.from(current_value);
         ini.allocator.free(current_value);
         item.value = try ini.allocator.dupe(u8, converted);
-        item.datatype = @import("zini").DataType.infer(converted);
+        item.datatype = @import("../src/ini.zig").DataType.infer(converted);
 
         std.debug.print("  ✓ 转换器已设置\n", .{});
         std.debug.print("  ✓ 借人类友好的 'error' 转换为高效的 '4'\n", .{});
@@ -111,9 +111,9 @@ pub fn main() !void {
 
     // 8. 使用预定义转换器
     std.debug.print("步骤 7: 使用预定义转换器\n", .{});
-    const common_converter = @import("zini").Converter.common.log_level;
+    const common_converter = @import("../src/ini.zig").Converter.common.log_level;
 
-    var ini2 = Ini.init(allocator);
+    var ini2 = Ini.default(allocator);
     defer ini2.deinit();
 
     try ini2.loadFromString(config);
@@ -124,7 +124,7 @@ pub fn main() !void {
         const converted = try common_converter.from(current);
         ini2.allocator.free(current);
         item.value = try ini2.allocator.dupe(u8, converted);
-        item.datatype = @import("zini").DataType.infer(converted);
+        item.datatype = @import("../src/ini.zig").DataType.infer(converted);
     }
 
     std.debug.print("  ✓ 使用预定义的 log_level 转换器\n", .{});

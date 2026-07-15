@@ -1,7 +1,7 @@
 //! 路径语法演示 - 统一的 API 访问配置
 
 const std = @import("std");
-const Ini = @import("zini").Ini;
+const Ini = @import("../src/ini.zig").Ini;
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -13,7 +13,7 @@ pub fn main() !void {
     // 示例 1: 基本路径语法
     {
         std.debug.print("示例 1: 基本路径语法\n", .{});
-        var config = Ini.init(allocator);
+        var config = Ini.default(allocator);
         defer config.deinit();
 
         // 设置配置项 - 使用路径语法
@@ -42,7 +42,7 @@ pub fn main() !void {
     // 示例 2: 类型安全的路径访问
     {
         std.debug.print("示例 2: 类型安全的路径访问\n", .{});
-        var config = Ini.init(allocator);
+        var config = Ini.default(allocator);
         defer config.deinit();
 
         // 设置不同类型的值
@@ -85,7 +85,7 @@ pub fn main() !void {
             \\pool_size = 20
         ;
 
-        var config = Ini.init(allocator);
+        var config = Ini.default(allocator);
         defer config.deinit();
 
         try config.loadFromString(config_content);
@@ -108,7 +108,7 @@ pub fn main() !void {
     // 示例 4: 多级路径支持
     {
         std.debug.print("示例 4: 多级路径支持\n", .{});
-        var config = Ini.init(allocator);
+        var config = Ini.default(allocator);
         defer config.deinit();
 
         // 设置深层嵌套的配置
@@ -131,7 +131,7 @@ pub fn main() !void {
     // 示例 5: 动态配置路径
     {
         std.debug.print("示例 5: 动态配置路径\n", .{});
-        var config = Ini.init(allocator);
+        var config = Ini.default(allocator);
         defer config.deinit();
 
         // 模拟动态构建配置路径
@@ -165,7 +165,7 @@ pub fn main() !void {
         std.debug.print("示例 6: 配置更新和保存\n", .{});
         const test_file = "path_syntax_test.ini";
 
-        var config = Ini.init(allocator);
+        var config = Ini.default(allocator);
         defer config.deinit();
 
         // 创建初始配置
@@ -177,7 +177,7 @@ pub fn main() !void {
         std.debug.print("  ✓ 初始配置已保存\n", .{});
 
         // 重新加载并更新
-        var config2 = Ini.init(allocator);
+        var config2 = Ini.default(allocator);
         defer config2.deinit();
 
         try config2.load(test_file);
@@ -190,7 +190,7 @@ pub fn main() !void {
         try config2.save();
 
         // 验证更新
-        var config3 = Ini.init(allocator);
+        var config3 = Ini.default(allocator);
         defer config3.deinit();
 
         try config3.load(test_file);

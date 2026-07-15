@@ -3,8 +3,8 @@
 //! 展示 INI 库的自动类型推断和类型安全访问功能
 
 const std = @import("std");
-const Ini = @import("zini").Ini;
-const DataType = @import("zini").DataType;
+const Ini = @import("../src/ini.zig").Ini;
+const DataType = @import("../src/ini.zig").DataType;
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -18,7 +18,7 @@ pub fn main() !void {
         std.debug.print("示例 1: 自动类型推断\n", .{});
         std.debug.print("------------------------\n", .{});
 
-        var config = Ini.init(allocator);
+        var config = Ini.default(allocator);
         defer config.deinit();
 
         // 设置各种类型的值
@@ -44,7 +44,7 @@ pub fn main() !void {
         std.debug.print("\n示例 2: 类型安全访问\n", .{});
         std.debug.print("----------------------\n", .{});
 
-        var config = Ini.init(allocator);
+        var config = Ini.default(allocator);
         defer config.deinit();
 
         try config.set("enabled", "true");
@@ -73,7 +73,7 @@ pub fn main() !void {
         std.debug.print("\n示例 3: Section 中的类型支持\n", .{});
         std.debug.print("-------------------------------\n", .{});
 
-        var config = Ini.init(allocator);
+        var config = Ini.default(allocator);
         defer config.deinit();
 
         // 数据库配置
@@ -137,7 +137,7 @@ pub fn main() !void {
             \\cache_ttl = 3600.0
         ;
 
-        var config = Ini.init(allocator);
+        var config = Ini.default(allocator);
         defer config.deinit();
 
         try config.loadFromString(config_content);
@@ -180,7 +180,7 @@ pub fn main() !void {
         std.debug.print("\n示例 5: 错误处理和类型检查\n", .{});
         std.debug.print("----------------------------\n", .{});
 
-        var config = Ini.init(allocator);
+        var config = Ini.default(allocator);
         defer config.deinit();
 
         try config.set("valid_int", "42");

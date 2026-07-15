@@ -10,14 +10,14 @@ test "set with type annotation" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var config = Ini.init(allocator);
+    var config = Ini.default(allocator);
     defer config.deinit();
 
     // 使用类型标注设置值
-    try config.set("count:u8", "123");
-    try config.set("port:u16", "8080");
-    try config.set("timeout:i32", "30");
-    try config.set("rate:f64", "3.14");
+    try config.set("count:number", "123");
+    try config.set("port:number", "8080");
+    try config.set("timeout:number", "30");
+    try config.set("rate:float", "3.14");
     try config.set("name", "test"); // 无类型标注，自动推断为 string
 
     // 保存到字符串
@@ -25,32 +25,32 @@ test "set with type annotation" {
     defer allocator.free(content);
 
     // 验证保存的内容包含类型标注
-    try testing.expect(std.mem.indexOf(u8, content, "count:u8 = 123") != null);
-    try testing.expect(std.mem.indexOf(u8, content, "port:u16 = 8080") != null);
-    try testing.expect(std.mem.indexOf(u8, content, "timeout:i32 = 30") != null);
-    try testing.expect(std.mem.indexOf(u8, content, "rate:f64 = 3.14") != null);
+    try testing.expect(std.mem.indexOf(u8, content, "count:number = 123") != null);
+    try testing.expect(std.mem.indexOf(u8, content, "port:number = 8080") != null);
+    try testing.expect(std.mem.indexOf(u8, content, "timeout:number = 30") != null);
+    try testing.expect(std.mem.indexOf(u8, content, "rate:float = 3.14") != null);
     try testing.expect(std.mem.indexOf(u8, content, "name = test") != null);
 
     // 重新加载并验证类型
-    var config2 = Ini.init(allocator);
+    var config2 = Ini.default(allocator);
     defer config2.deinit();
 
     try config2.loadFromString(content);
 
     // 验证值的类型
-    const count_entry = config2.getSchema("count").?;
-    try testing.expectEqual(DataType.u8, count_entry.datatype);
+    const count_entry = config2.getItem("count").?;
+    try testing.expectEqual(DataType.number, count_entry.datatype);
 
-    const port_entry = config2.getSchema("port").?;
-    try testing.expectEqual(DataType.u16, port_entry.datatype);
+    const port_entry = config2.getItem("port").?;
+    try testing.expectEqual(DataType.number, port_entry.datatype);
 
-    const timeout_entry = config2.getSchema("timeout").?;
-    try testing.expectEqual(DataType.i32, timeout_entry.datatype);
+    const timeout_entry = config2.getItem("timeout").?;
+    try testing.expectEqual(DataType.number, timeout_entry.datatype);
 
-    const rate_entry = config2.getSchema("rate").?;
-    try testing.expectEqual(DataType.f64, rate_entry.datatype);
+    const rate_entry = config2.getItem("rate").?;
+    try testing.expectEqual(DataType.float, rate_entry.datatype);
 
-    const name_entry = config2.getSchema("name").?;
+    const name_entry = config2.getItem("name").?;
     try testing.expectEqual(DataType.string, name_entry.datatype);
 }
 
@@ -59,19 +59,19 @@ test "set with path syntax and type annotation" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var config = Ini.init(allocator);
+    var config = Ini.default(allocator);
     defer config.deinit();
 
     // 路径语法 + 类型标注
-    try config.set("server.port:u16", "9000");
-    try config.set("database.timeout:i32", "60");
+    try config.set("server.port:number", "9000");
+    try config.set("database.timeout:number", "60");
 
     const content = try config.saveToString(allocator);
     defer allocator.free(content);
 
     // 验证保存的内容
-    try testing.expect(std.mem.indexOf(u8, content, "port:u16 = 9000") != null);
-    try testing.expect(std.mem.indexOf(u8, content, "timeout:i32 = 60") != null);
+    try testing.expect(std.mem.indexOf(u8, content, "port:number = 9000") != null);
+    try testing.expect(std.mem.indexOf(u8, content, "timeout:number = 60") != null);
 }
 
 test "set without type annotation - auto inference" {
@@ -79,7 +79,7 @@ test "set without type annotation - auto inference" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var config = Ini.init(allocator);
+    var config = Ini.default(allocator);
     defer config.deinit();
 
     // 不带类型标注，自动推断

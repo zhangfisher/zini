@@ -1,7 +1,7 @@
 //! 二进制和十六进制数字支持演示
 
 const std = @import("std");
-const Ini = @import("zini").Ini;
+const Ini = @import("../src/ini.zig").Ini;
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -23,7 +23,7 @@ pub fn main() !void {
             \\decimal_negative=-42
         ;
 
-        var config = Ini.init(allocator);
+        var config = Ini.default(allocator);
         defer config.deinit();
 
         try config.loadFromString(config_content);
@@ -54,7 +54,7 @@ pub fn main() !void {
             \\max_value:u64=0xFFFFFFFFFFFFFFFF  // 64位最大值
         ;
 
-        var config = Ini.init(allocator);
+        var config = Ini.default(allocator);
         defer config.deinit();
 
         try config.loadFromString(config_content);
@@ -97,7 +97,7 @@ pub fn main() !void {
             \\success_color:u32=0x2ecc71     # 绿色
         ;
 
-        var config = Ini.init(allocator);
+        var config = Ini.default(allocator);
         defer config.deinit();
 
         try config.loadFromString(config_content);
@@ -144,7 +144,7 @@ pub fn main() !void {
             \\vector_table:u16=0x0000  # 中断向量表
         ;
 
-        var config = Ini.init(allocator);
+        var config = Ini.default(allocator);
         defer config.deinit();
 
         try config.loadFromString(config_content);
@@ -181,7 +181,7 @@ pub fn main() !void {
             \\format:u8=0b011     # RGB565格式
         ;
 
-        var config = Ini.init(allocator);
+        var config = Ini.default(allocator);
         defer config.deinit();
 
         try config.loadFromString(config_content);
@@ -236,7 +236,7 @@ pub fn main() !void {
             \\u64_max:u64=0xFFFFFFFFFFFFFFFF
         ;
 
-        var config = Ini.init(allocator);
+        var config = Ini.default(allocator);
         defer config.deinit();
 
         try config.loadFromString(config_content);

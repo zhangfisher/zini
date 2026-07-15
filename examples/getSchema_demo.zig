@@ -1,7 +1,7 @@
 //! getSchema 功能演示 - 支持 Schema 查询和路径语法
 
 const std = @import("std");
-const Ini = @import("zini").Ini;
+const Ini = @import("../src/ini.zig").Ini;
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -15,7 +15,7 @@ pub fn main() !void {
         std.debug.print("示例 1: 基本 Schema 查询\n", .{});
         std.debug.print("-----------------------\n", .{});
 
-        var config = Ini.init(allocator);
+        var config = Ini.default(allocator);
         defer config.deinit();
 
         try config.set("port:u16", "8080");
@@ -42,7 +42,7 @@ pub fn main() !void {
         std.debug.print("示例 2: 路径语法 Schema 查询\n", .{});
         std.debug.print("--------------------------\n", .{});
 
-        var config = Ini.init(allocator);
+        var config = Ini.default(allocator);
         defer config.deinit();
 
         try config.set("server.port", "9000");
@@ -70,7 +70,7 @@ pub fn main() !void {
         std.debug.print("示例 3: Schema 验证和调试\n", .{});
         std.debug.print("-------------------\n", .{});
 
-        var config = Ini.init(allocator);
+        var config = Ini.default(allocator);
         defer config.deinit();
 
         try config.set("max_conn:u8", "200");

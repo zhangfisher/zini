@@ -1,7 +1,7 @@
 //! 演示记住文件路径的功能
 
 const std = @import("std");
-const Ini = @import("zini").Ini;
+const Ini = @import("../src/ini.zig").Ini;
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -19,7 +19,7 @@ pub fn main() !void {
 
         // 创建并写入初始配置
         {
-            var config = Ini.init(allocator);
+            var config = Ini.default(allocator);
             defer config.deinit();
 
             try config.set("app_name", "TestApp");
@@ -33,7 +33,7 @@ pub fn main() !void {
         }
 
         // 加载配置文件
-        var config = Ini.init(allocator);
+        var config = Ini.default(allocator);
         defer config.deinit();
 
         try config.load(test_file);
@@ -48,7 +48,7 @@ pub fn main() !void {
         std.debug.print("  ✓ 使用 save() 保存（无需指定路径）\n", .{});
 
         // 验证保存的内容
-        var config2 = Ini.init(allocator);
+        var config2 = Ini.default(allocator);
         defer config2.deinit();
 
         try config2.load(test_file);
@@ -68,7 +68,7 @@ pub fn main() !void {
         const file1 = "config1.ini";
         const file2 = "config2.ini";
 
-        var config = Ini.init(allocator);
+        var config = Ini.default(allocator);
         defer config.deinit();
 
         try config.set("key", "value1");
@@ -90,11 +90,11 @@ pub fn main() !void {
         std.debug.print("  ✓ save() 保存到记住的路径: {s}\n", .{file1});
 
         // 验证两个文件的内容
-        var config1 = Ini.init(allocator);
+        var config1 = Ini.default(allocator);
         defer config1.deinit();
         try config1.load(file1);
 
-        var config2 = Ini.init(allocator);
+        var config2 = Ini.default(allocator);
         defer config2.deinit();
         try config2.load(file2);
 

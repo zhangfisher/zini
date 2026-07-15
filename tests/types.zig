@@ -3,8 +3,8 @@
 //! 测试数据类型推断和类型安全的访问方法
 
 const std = @import("std");
-const Ini = @import("src/root.zig").Ini;
-const DataType = @import("src/types.zig").DataType;
+const Ini = @import("zini").Ini;
+const DataType = @import("zini").DataType;
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -16,7 +16,7 @@ pub fn main() !void {
     // 测试 1: 类型推断
     {
         std.debug.print("测试 1: 类型推断\n", .{});
-        var ini = Ini.init(allocator);
+        var ini = Ini.default(allocator);
         defer ini.deinit();
 
         // 设置不同类型的值
@@ -28,23 +28,23 @@ pub fn main() !void {
         try ini.set("string", "hello");
 
         // 验证类型推断
-        if (ini.getSchema("bool_true")) |entry| {
+        if (ini.getItem("bool_true")) |entry| {
             std.debug.print("  bool_true 类型: {s}\n", .{entry.datatype.toTypeName()});
-            try std.testing.expectEqual(DataType.bool, entry.datatype);
+            try std.testing.expectEqual(DataType.boolean, entry.datatype);
         }
 
-        if (ini.getSchema("integer")) |entry| {
-            std.debug.print("  integer 类型: {s}\n", .{entry.datatype.typeName()});
-            try std.testing.expectEqual(DataType.int, entry.datatype);
+        if (ini.getItem("integer")) |entry| {
+            std.debug.print("  integer 类型: {s}\n", .{entry.datatype.toTypeName()});
+            try std.testing.expectEqual(DataType.number, entry.datatype);
         }
 
-        if (ini.getSchema("float")) |entry| {
-            std.debug.print("  float 类型: {s}\n", .{entry.datatype.typeName()});
+        if (ini.getItem("float")) |entry| {
+            std.debug.print("  float 类型: {s}\n", .{entry.datatype.toTypeName()});
             try std.testing.expectEqual(DataType.float, entry.datatype);
         }
 
-        if (ini.getSchema("string")) |entry| {
-            std.debug.print("  string 类型: {s}\n", .{entry.datatype.typeName()});
+        if (ini.getItem("string")) |entry| {
+            std.debug.print("  string 类型: {s}\n", .{entry.datatype.toTypeName()});
             try std.testing.expectEqual(DataType.string, entry.datatype);
         }
 
@@ -54,14 +54,14 @@ pub fn main() !void {
     // 测试 2: 布尔值访问
     {
         std.debug.print("\n测试 2: 布尔值访问\n", .{});
-        var ini = Ini.init(allocator);
+        var ini = Ini.default(allocator);
         defer ini.deinit();
 
         try ini.set("enabled", "true");
         try ini.set("disabled", "false");
 
-        const enabled = try ini.getBool("enabled");
-        const disabled = try ini.getBool("disabled");
+        const enabled = ini.getBoolean("enabled");
+        const disabled = ini.getBoolean("disabled");
 
         std.debug.print("  enabled = {}\n", .{enabled});
         std.debug.print("  disabled = {}\n", .{disabled});
@@ -75,7 +75,7 @@ pub fn main() !void {
     // 测试 3: 整数访问
     {
         std.debug.print("\n测试 3: 整数访问\n", .{});
-        var ini = Ini.init(allocator);
+        var ini = Ini.default(allocator);
         defer ini.deinit();
 
         try ini.set("port", "8080");
@@ -100,16 +100,16 @@ pub fn main() !void {
     // 测试 4: 浮点数访问
     {
         std.debug.print("\n测试 4: 浮点数访问\n", .{});
-        var ini = Ini.init(allocator);
+        var ini = Ini.default(allocator);
         defer ini.deinit();
 
         try ini.set("pi", "3.14159");
         try ini.set("e", "2.71828");
         try ini.set("rate", "0.05");
 
-        const pi = try ini.getFloat("pi");
-        const e = try ini.getFloat("e");
-        const rate = try ini.getFloat("rate");
+        const pi = ini.getFloat("pi");
+        const e = ini.getFloat("e");
+        const rate = ini.getFloat("rate");
 
         std.debug.print("  pi = {d:.5}\n", .{pi});
         std.debug.print("  e = {d:.5}\n", .{e});
@@ -125,7 +125,7 @@ pub fn main() !void {
     // 测试 5: Section 中的类型访问
     {
         std.debug.print("\n测试 5: Section 中的类型访问\n", .{});
-        var ini = Ini.init(allocator);
+        var ini = Ini.default(allocator);
         defer ini.deinit();
 
         try ini.set("database.host", "localhost");
@@ -135,8 +135,8 @@ pub fn main() !void {
 
         const host = ini.get("database.host").?;
         const port = try ini.getInt("database.port");
-        const ssl = try ini.getBool("database.ssl");
-        const timeout = try ini.getFloat("database.timeout");
+        const ssl = ini.getBoolean("database.ssl");
+        const timeout = ini.getFloat("database.timeout");
 
         std.debug.print("  host = {s}\n", .{host});
         std.debug.print("  port = {}\n", .{port});
@@ -176,17 +176,17 @@ pub fn main() !void {
             \\load_factor = 0.8
         ;
 
-        var ini = Ini.init(allocator);
+        var ini = Ini.default(allocator);
         defer ini.deinit();
 
         try ini.loadFromString(config_content);
 
         // 验证全局配置
         const app_name = ini.get("app.name").?;
-        const app_version = try ini.getFloat("app.version");
-        const app_debug = try ini.getBool("app.debug");
+        const app_version = ini.getFloat("app.version");
+        const app_debug = ini.getBoolean("app.debug");
         const max_users = try ini.getInt("app.max_users");
-        const tax_rate = try ini.getFloat("app.tax_rate");
+        const tax_rate = ini.getFloat("app.tax_rate");
 
         std.debug.print("  应用信息:\n", .{});
         std.debug.print("    名称: {s}\n", .{app_name});
@@ -197,8 +197,8 @@ pub fn main() !void {
 
         // 验证数据库配置
         const db_port = try ini.getInt("database.port");
-        const db_ssl = try ini.getBool("database.ssl");
-        const db_timeout = try ini.getFloat("database.timeout");
+        const db_ssl = ini.getBoolean("database.ssl");
+        const db_timeout = ini.getFloat("database.timeout");
 
         std.debug.print("  数据库配置:\n", .{});
         std.debug.print("    端口: {}\n", .{db_port});
@@ -207,8 +207,8 @@ pub fn main() !void {
 
         // 验证服务器配置
         const server_workers = try ini.getInt("server.workers");
-        const server_enabled = try ini.getBool("server.enabled");
-        const server_load = try ini.getFloat("server.load_factor");
+        const server_enabled = ini.getBoolean("server.enabled");
+        const server_load = ini.getFloat("server.load_factor");
 
         std.debug.print("  服务器配置:\n", .{});
         std.debug.print("    工作进程: {}\n", .{server_workers});
@@ -221,14 +221,14 @@ pub fn main() !void {
     // 测试 7: 错误处理
     {
         std.debug.print("\n测试 7: 错误处理\n", .{});
-        var ini = Ini.init(allocator);
+        var ini = Ini.default(allocator);
         defer ini.deinit();
 
         try ini.set("valid_int", "42");
         try ini.set("valid_bool", "true");
 
         // 尝试类型不匹配的转换
-        if (ini.getBool("valid_int")) |_| {
+        if (ini.getBoolean("valid_int")) |_| {
             std.debug.print("  ✗ 意外转换成功\n", .{});
         } else |err| {
             std.debug.print("  ✓ 正确处理类型不匹配: {}\n", .{err});
@@ -241,7 +241,7 @@ pub fn main() !void {
         }
 
         // 访问不存在的键
-        if (ini.getBool("nonexistent")) |_| {
+        if (ini.getBoolean("nonexistent")) |_| {
             std.debug.print("  ✗ 意外找到不存在的键\n", .{});
         } else |err| {
             std.debug.print("  ✓ 正确处理不存在的键: {}\n", .{err});
@@ -256,7 +256,7 @@ pub fn main() !void {
 // 单元测试
 test "type inference basic" {
     const allocator = std.testing.allocator;
-    var ini = Ini.init(allocator);
+    var ini = Ini.default(allocator);
     defer ini.deinit();
 
     try ini.set("bool_val", "true");
@@ -264,29 +264,29 @@ test "type inference basic" {
     try ini.set("float_val", "3.14");
     try ini.set("str_val", "hello");
 
-    const bool_entry = ini.getSchema("bool_val").?;
-    const int_entry = ini.getSchema("int_val").?;
-    const float_entry = ini.getSchema("float_val").?;
-    const str_entry = ini.getSchema("str_val").?;
+    const bool_entry = ini.getItem("bool_val").?;
+    const int_entry = ini.getItem("int_val").?;
+    const float_entry = ini.getItem("float_val").?;
+    const str_entry = ini.getItem("str_val").?;
 
-    try std.testing.expectEqual(DataType.bool, bool_entry.datatype);
-    try std.testing.expectEqual(DataType.int, int_entry.datatype);
+    try std.testing.expectEqual(DataType.boolean, bool_entry.datatype);
+    try std.testing.expectEqual(DataType.number, int_entry.datatype);
     try std.testing.expectEqual(DataType.float, float_entry.datatype);
     try std.testing.expectEqual(DataType.string, str_entry.datatype);
 }
 
 test "type safe access" {
     const allocator = std.testing.allocator;
-    var ini = Ini.init(allocator);
+    var ini = Ini.default(allocator);
     defer ini.deinit();
 
     try ini.set("bool_val", "true");
     try ini.set("int_val", "42");
     try ini.set("float_val", "3.14");
 
-    const bool_val = try ini.getBool("bool_val");
+    const bool_val = ini.getBoolean("bool_val");
     const int_val = try ini.getInt("int_val");
-    const float_val = try ini.getFloat("float_val");
+    const float_val = ini.getFloat("float_val");
 
     try std.testing.expect(bool_val == true);
     try std.testing.expectEqual(@as(i64, 42), int_val);
@@ -295,16 +295,16 @@ test "type safe access" {
 
 test "section type access" {
     const allocator = std.testing.allocator;
-    var ini = Ini.init(allocator);
+    var ini = Ini.default(allocator);
     defer ini.deinit();
 
     try ini.set("config.enabled", "true");
     try ini.set("config.count", "10");
     try ini.set("config.rate", "0.5");
 
-    const enabled = try ini.getBool("config.enabled");
+    const enabled = ini.getBoolean("config.enabled");
     const count = try ini.getInt("config.count");
-    const rate = try ini.getFloat("config.rate");
+    const rate = ini.getFloat("config.rate");
 
     try std.testing.expect(enabled == true);
     try std.testing.expectEqual(@as(i64, 10), count);

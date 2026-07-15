@@ -3,7 +3,7 @@
 //! 展示 INI 库的完整功能和使用模式
 
 const std = @import("std");
-const Ini = @import("zini").Ini;
+const Ini = @import("../src/ini.zig").Ini;
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -15,7 +15,7 @@ pub fn main() !void {
     // 示例 1: 创建复杂配置
     {
         std.debug.print("示例 1: 创建复杂配置\n", .{});
-        var config = Ini.init(allocator);
+        var config = Ini.default(allocator);
         defer config.deinit();
 
         // 应用信息
@@ -65,7 +65,7 @@ pub fn main() !void {
             \\name = production
         ;
 
-        var config = Ini.init(allocator);
+        var config = Ini.default(allocator);
         defer config.deinit();
 
         try config.loadFromString(ini_content);
@@ -83,7 +83,7 @@ pub fn main() !void {
     // 示例 3: 动态修改配置
     {
         std.debug.print("\n示例 3: 动态修改配置\n", .{});
-        var config = Ini.init(allocator);
+        var config = Ini.default(allocator);
         defer config.deinit();
 
         // 加载初始配置
@@ -105,7 +105,7 @@ pub fn main() !void {
     // 示例 4: 检查和操作 Sections
     {
         std.debug.print("\n示例 4: 检查和操作 Sections\n", .{});
-        var config = Ini.init(allocator);
+        var config = Ini.default(allocator);
         defer config.deinit();
 
         try config.set("section1.key1", "value1");
@@ -123,7 +123,7 @@ pub fn main() !void {
     // 示例 5: 保存和加载文件
     {
         std.debug.print("\n示例 5: 文件操作\n", .{});
-        var config = Ini.init(allocator);
+        var config = Ini.default(allocator);
         defer config.deinit();
 
         try config.set("temp", "value");
@@ -137,7 +137,7 @@ pub fn main() !void {
         }
 
         // 从文件加载
-        var config2 = Ini.init(allocator);
+        var config2 = Ini.default(allocator);
         defer config2.deinit();
 
         try config2.load("temp_config.ini");
@@ -148,7 +148,7 @@ pub fn main() !void {
     // 示例 6: 错误处理
     {
         std.debug.print("\n示例 6: 错误处理\n", .{});
-        var config = Ini.init(allocator);
+        var config = Ini.default(allocator);
         defer config.deinit();
 
         // 尝试读取不存在的键

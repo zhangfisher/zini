@@ -1,12 +1,12 @@
 const std = @import("std");
 const testing = std.testing;
 const Ini = @import("zini").Ini;
-const Schema = @import("zini").Schema;
+const Item = @import("zini").Item;
 
 // 测试元数据解析：@default
 test "元数据解析：@default" {
     const allocator = std.testing.allocator;
-    var ini = Ini.init(allocator);
+    var ini = Ini.default(allocator);
     defer ini.deinit();
 
     const content =
@@ -17,7 +17,7 @@ test "元数据解析：@default" {
     ;
 
     try ini.loadFromString(content);
-    const schema = ini.getSchema("port").?;
+    const schema = ini.getItem("port").?;
 
     try testing.expect(schema.default != null);
     try testing.expectEqualStrings("8080", schema.default.?);
@@ -30,7 +30,7 @@ test "元数据解析：@default" {
 // 测试元数据解析：@enum
 test "元数据解析：@enum" {
     const allocator = std.testing.allocator;
-    var ini = Ini.init(allocator);
+    var ini = Ini.default(allocator);
     defer ini.deinit();
 
     const content =
@@ -40,7 +40,7 @@ test "元数据解析：@enum" {
     ;
 
     try ini.loadFromString(content);
-    const schema = ini.getSchema("port").?;
+    const schema = ini.getItem("port").?;
 
     try testing.expect(schema.@"enum" != null);
     try testing.expectEqualStrings("8080,8081,8082", schema.@"enum".?);
@@ -51,28 +51,28 @@ test "元数据解析：@enum" {
 // 测试元数据写入和重新加载
 test "元数据写入和重新加载" {
     const allocator = std.testing.allocator;
-    var ini = Ini.init(allocator);
+    var ini = Ini.default(allocator);
     defer ini.deinit();
 
-    // 手动创建带有元数据的Schema
-    var schema = try Schema.init(allocator, "port", "9000");
-    defer schema.deinit(allocator);
+    // 手动创建带有元数据的Item
+    var item = try Item.init(allocator, "port", "9000");
+    defer item.deinit(allocator);
 
-    schema.title = try allocator.dupe(u8, "侦听端口");
-    schema.default = try allocator.dupe(u8, "8080");
-    schema.@"enum" = try allocator.dupe(u8, "8080,8081,8082");
+    item.title = try allocator.dupe(u8, "侦听端口");
+    item.default = try allocator.dupe(u8, "8080");
+    item.@"enum" = try allocator.dupe(u8, "8080,8081,8082");
 
-    try ini.addItem("port", schema);
+    try ini.addItem("port", item);
 
     // add()会深拷贝，所以需要手动释放这些字段
-    allocator.free(schema.title.?);
-    allocator.free(schema.default.?);
-    allocator.free(schema.@"enum".?);
+    allocator.free(item.title.?);
+    allocator.free(item.default.?);
+    allocator.free(item.@"enum".?);
 
     // 将字段设为null，避免defer deinit再次释放
-    schema.title = null;
-    schema.default = null;
-    schema.@"enum" = null;
+    item.title = null;
+    item.default = null;
+    item.@"enum" = null;
 
     // 保存到字符串
     const saved = try ini.saveToString(allocator);
@@ -81,16 +81,16 @@ test "元数据写入和重新加载" {
     std.debug.print("  保存的内容:\n{s}\n", .{saved});
 
     // 重新加载
-    var ini2 = Ini.init(allocator);
+    var ini2 = Ini.default(allocator);
     defer ini2.deinit();
     try ini2.loadFromString(saved);
 
     // 验证元数据保留
-    const loaded_schema = ini2.getSchema("port").?;
-    try testing.expectEqualStrings("侦听端口", loaded_schema.title.?);
-    try testing.expectEqualStrings("8080", loaded_schema.default.?);
-    try testing.expectEqualStrings("8080,8081,8082", loaded_schema.@"enum".?);
-    try testing.expectEqualStrings("9000", loaded_schema.value);
+    const loaded_item = ini2.getItem("port").?;
+    try testing.expectEqualStrings("侦听端口", loaded_item.title.?);
+    try testing.expectEqualStrings("8080", loaded_item.default.?);
+    try testing.expectEqualStrings("8080,8081,8082", loaded_item.@"enum".?);
+    try testing.expectEqualStrings("9000", loaded_item.value);
 
     std.debug.print("  ✓ 元数据写入和重新加载测试通过\n", .{});
 }
@@ -108,7 +108,7 @@ test "向后兼容：现有@title功能" {
     ;
 
     try ini.loadFromString(content);
-    const schema = ini.getSchema("key").?;
+    const schema = ini.getItem("key").?;
 
     try testing.expectEqualStrings("测试标题", schema.title.?);
     try testing.expectEqualStrings("普通描述", schema.description.?);
@@ -119,7 +119,7 @@ test "向后兼容：现有@title功能" {
 // 测试空格兼容性
 test "元数据解析：空格兼容性" {
     const allocator = std.testing.allocator;
-    var ini = Ini.init(allocator);
+    var ini = Ini.default(allocator);
     defer ini.deinit();
 
     const content =
@@ -130,7 +130,7 @@ test "元数据解析：空格兼容性" {
     ;
 
     try ini.loadFromString(content);
-    const schema = ini.getSchema("key").?;
+    const schema = ini.getItem("key").?;
 
     try testing.expectEqualStrings("标题", schema.title.?);
     try testing.expectEqualStrings("8080", schema.default.?);
@@ -142,7 +142,7 @@ test "元数据解析：空格兼容性" {
 // 测试只有部分元数据的情况
 test "元数据解析：只有部分元数据" {
     const allocator = std.testing.allocator;
-    var ini = Ini.init(allocator);
+    var ini = Ini.default(allocator);
     defer ini.deinit();
 
     const content =
@@ -151,10 +151,10 @@ test "元数据解析：只有部分元数据" {
     ;
 
     try ini.loadFromString(content);
-    const schema = ini.getSchema("port").?;
+    const schema = ini.getItem("port").?;
 
     try testing.expect(schema.default != null);
-    try testing.expect(schema.title == null);  // 没有title
+    try testing.expect(schema.title == null); // 没有title
     try testing.expect(schema.@"enum" == null); // 没有enum
 
     std.debug.print("  ✓ 部分元数据测试通过\n", .{});
@@ -163,31 +163,31 @@ test "元数据解析：只有部分元数据" {
 // 测试写入顺序
 test "元数据写入：正确的顺序" {
     const allocator = std.testing.allocator;
-    var ini = Ini.init(allocator);
+    var ini = Ini.default(allocator);
     defer ini.deinit();
 
-    // 手动创建带有完整元数据的Schema
-    var schema = try Schema.init(allocator, "db_host", "localhost");
-    defer schema.deinit(allocator);
+    // 手动创建带有完整元数据的Item
+    var item = try Item.init(allocator, "db_host", "localhost");
+    defer item.deinit(allocator);
 
-    schema.description = try allocator.dupe(u8, "数据库服务器地址");
-    schema.title = try allocator.dupe(u8, "数据库主机");
-    schema.default = try allocator.dupe(u8, "localhost");
-    schema.@"enum" = try allocator.dupe(u8, "localhost,127.0.0.1");
+    item.description = try allocator.dupe(u8, "数据库服务器地址");
+    item.title = try allocator.dupe(u8, "数据库主机");
+    item.default = try allocator.dupe(u8, "localhost");
+    item.@"enum" = try allocator.dupe(u8, "localhost,127.0.0.1");
 
-    try ini.addItem("db_host", schema);
+    try ini.addItem("db_host", item);
 
     // add()会深拷贝，所以需要手动释放这些字段
-    allocator.free(schema.description.?);
-    allocator.free(schema.title.?);
-    allocator.free(schema.default.?);
-    allocator.free(schema.@"enum".?);
+    allocator.free(item.description.?);
+    allocator.free(item.title.?);
+    allocator.free(item.default.?);
+    allocator.free(item.@"enum".?);
 
     // 将字段设为null，避免defer deinit再次释放
-    schema.description = null;
-    schema.title = null;
-    schema.default = null;
-    schema.@"enum" = null;
+    item.description = null;
+    item.title = null;
+    item.default = null;
+    item.@"enum" = null;
 
     // 保存到字符串
     const saved = try ini.saveToString(allocator);

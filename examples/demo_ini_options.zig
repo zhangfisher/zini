@@ -2,8 +2,8 @@
 //! 演示内存优化和自动注释保留功能
 
 const std = @import("std");
-const Ini = @import("zini").Ini;
-const IniOptions = @import("zini").IniOptions;
+const Ini = @import("../src/ini.zig").Ini;
+const IniOptions = @import("../src/ini.zig").IniOptions;
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -29,7 +29,7 @@ pub fn main() !void {
     {
         std.debug.print("--- 场景1：默认API（内存优化 + 自动注释保留）---\n", .{});
 
-        var ini = Ini.init(allocator);
+        var ini = Ini.default(allocator);
         defer ini.deinit();
 
         try ini.loadFromString(original_content);

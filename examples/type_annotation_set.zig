@@ -1,7 +1,7 @@
 //! 类型标注功能演示 - set() 方法的类型标注特性
 
 const std = @import("std");
-const Ini = @import("zini").Ini;
+const Ini = @import("../src/ini.zig").Ini;
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -13,7 +13,7 @@ pub fn main() !void {
     // 示例 1: 基本类型标注
     {
         std.debug.print("示例 1: 基本类型标注\n", .{});
-        var config = Ini.init(allocator);
+        var config = Ini.default(allocator);
         defer config.deinit();
 
         // 使用类型标注设置值
@@ -30,7 +30,7 @@ pub fn main() !void {
         std.debug.print("  ✓ 配置已保存到 {s}\n", .{test_file});
 
         // 重新加载并验证
-        var config2 = Ini.init(allocator);
+        var config2 = Ini.default(allocator);
         defer config2.deinit();
 
         try config2.load(test_file);
@@ -55,7 +55,7 @@ pub fn main() !void {
     // 示例 2: 路径语法 + 类型标注
     {
         std.debug.print("示例 2: 路径语法 + 类型标注\n", .{});
-        var config = Ini.init(allocator);
+        var config = Ini.default(allocator);
         defer config.deinit();
 
         // 路径语法配合类型标注
@@ -77,7 +77,7 @@ pub fn main() !void {
     // 示例 3: 混合使用类型标注和自动推断
     {
         std.debug.print("示例 3: 混合使用类型标注和自动推断\n", .{});
-        var config = Ini.init(allocator);
+        var config = Ini.default(allocator);
         defer config.deinit();
 
         // 显式类型标注
@@ -106,7 +106,7 @@ pub fn main() !void {
             \\enabled = true
         ;
 
-        var config = Ini.init(allocator);
+        var config = Ini.default(allocator);
         defer config.deinit();
 
         try config.loadFromString(original_content);

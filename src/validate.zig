@@ -103,9 +103,12 @@ pub const ValidatorRegistry = struct {
     ///   - item: 要校验的配置项
     /// 返回：true 表示通过，false 表示失败
     pub fn validate(self: *const Self, item: *const Item) bool {
+        // 如果 value 为 null，验证失败
+        const value = item.value orelse return false;
+
         // 1. 先执行全局验证器（总是存在）
         for (self.global_validators.items) |validator| {
-            if (!validator(item.value, item)) {
+            if (!validator(value, item)) {
                 return false;
             }
         }
@@ -115,7 +118,7 @@ pub const ValidatorRegistry = struct {
             if (self.validators) |validators_map| {
                 for (validator_names) |name| {
                     if (validators_map.get(name)) |validator| {
-                        if (!validator(item.value, item)) {
+                        if (!validator(value, item)) {
                             return false;
                         }
                     }

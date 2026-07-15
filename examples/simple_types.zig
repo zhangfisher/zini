@@ -1,8 +1,8 @@
 //! 简化的类型支持演示
 
 const std = @import("std");
-const Ini = @import("zini").Ini;
-const DataType = @import("zini").DataType;
+const Ini = @import("../src/ini.zig").Ini;
+const DataType = @import("../src/ini.zig").DataType;
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -14,7 +14,7 @@ pub fn main() !void {
     // 示例 1: 类型安全访问
     {
         std.debug.print("示例 1: 类型安全访问\n", .{});
-        var config = Ini.init(allocator);
+        var config = Ini.default(allocator);
         defer config.deinit();
 
         try config.set("enabled", "true");
@@ -41,7 +41,7 @@ pub fn main() !void {
     // 示例 2: Section 类型访问
     {
         std.debug.print("示例 2: Section 类型访问\n", .{});
-        var config = Ini.init(allocator);
+        var config = Ini.default(allocator);
         defer config.deinit();
 
         try config.set("database.port", "5432");
@@ -73,7 +73,7 @@ pub fn main() !void {
             \\pool_size = 10
         ;
 
-        var config = Ini.init(allocator);
+        var config = Ini.default(allocator);
         defer config.deinit();
 
         try config.loadFromString(config_content);

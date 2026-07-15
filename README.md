@@ -15,6 +15,7 @@
 - **🏷️ 丰富元数据** - 支持 `title`、`default`、`choices` 等元数据
 - **🔄 配置重置** - 支持 `reset()` 方法一键恢复默认值
 - **🎯 精确操作** - 支持 `getSection()` 方法操作特定 `section`，点号语法访问
+- **🤖 智能 addItem** - `addItem` 方法支持自动类型推断，与 `set` 方法保持一致
 - **💾 内存优化** - 可选的描述加载模式，灵活控制内存占用
 - **🔧 转换器系统** - 支持双向值转换，扩展配置值处理能力
 - **✅ 验证器系统** - 可扩展的验证框架，支持自定义验证规则
@@ -53,28 +54,63 @@ zig build test
 zig build -h
 ```
 
-```zig
+### 从 GitHub 安装（推荐）
 
+在您的 `build.zig.zon` 文件中添加 zini 依赖：
+
+```zig
+.dependencies = .{
+    .zini = .{
+        // 使用 GitHub 仓库 URL（推荐使用特定标签或提交哈希）
+        .url = "https://github.com/zhangfisher/zini/archive/refs/tags/v1.0.0.tar.gz",
+        .hash = "1220abcdefghijklmnopqrstuvwxyz", // 运行 zig build 后自动填充
+    },
+}
+```
+
+**GitHub URL 格式说明：**
+
+1. **使用特定版本（推荐）：**
+
+   ```zig
+   // 最新稳定版本（推荐）
+   .url = "https://github.com/zhangfisher/zini/archive/refs/tags/v1.0.0.tar.gz"
+
+   // 或使用提交哈希
+   .url = "https://github.com/zhangfisher/zini/archive/abc123def456.tar.gz"
+   ```
+
+2. **使用主分支（不推荐，可能不稳定）：**
+   ```zig
+   .url = "https://github.com/zhangfisher/zini/archive/refs/heads/main.tar.gz"
+   ```
+
+**在 build.zig 中添加依赖：**
+
+```zig
 const zini = b.dependency("zini", .{
-.target = target,
-.optimize = optimize,
+    .target = target,
+    .optimize = optimize,
 });
 
 const ini_module = zini.module("zini");
 exe.root_module.addImport("zini", ini_module);
-
 ```
 
 **获取正确的 hash：**
 
 ```bash
-# 首次添加依赖时，让 Zig 自动计算 hash
+# 首次添加依赖时，将 hash 设为任意值
+# 运行以下命令，Zig 会提示正确的 hash
 zig build
+
+# 或者使用 zig fetch 直接获取正确的 URL 和 hash
+zig fetch https://github.com/zhangfisher/zini/archive/refs/tags/v1.0.0.tar.gz
 ```
 
 ### 本地项目引用
 
-如果你在本地开发或想使用本地副本：
+如果您在本地开发或想使用本地副本：
 
 ```zig
 // 在 build.zig.zon 中
@@ -117,7 +153,7 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    var ini = Ini.init(allocator);
+    var ini = Ini.default(allocator);
     defer ini.deinit();
 
     try ini.set("test", "success");
@@ -135,13 +171,46 @@ test.exe  # Windows
 
 ---
 
+## 快速入门
+
+```zig
+const std = @import("std");
+const Ini = @import("zini").Ini;
+
+pub fn main() !void {
+    const allocator = std.heap.page_allocator;
+
+    // 从配置数组初始化（推荐提供default）
+    const items = [_]Ini.Item{
+        .{ .key = "port", .default = "8080" },
+        .{ .key = "debug", .default = "false" },
+        .{ .key = "host", .default = "localhost" },
+    };
+    var ini = try Ini.init(allocator, &items);
+    defer ini.deinit();
+
+    // 再从文件加载（覆盖配置，但保留 default 值）
+    try ini.load("config.ini");
+
+    // 类型安全地获取配置值
+    const port: i64 = try ini.getNumber("port");
+    const debug: bool = try ini.getBoolean("debug");
+
+    // 修改配置：try ini.set("port", "9090");
+    // 重置为默认值：try ini.reset();
+    // 保存文件：try ini.save("output.ini");
+}
+```
+
+**最佳实践：** 从配置数组初始化时推荐同时提供 `value` 和 `default` 值，这样可以使用 `reset()` 恢复默认值；然后用 `load` 加载用户配置文件；始终使用类型安全的 getter 方法（`getNumber`、`getBoolean`、`getFloat`、`getString`）；记得 `defer ini.deinit()` 释放资源。
+
+---
+
 ## 指南
 
-### 自动类型推断
+### 数据类型
 
-`zini` 可以根据值的内容自动识别类型，无需任何手动标注。
-
-**推断规则：**
+`zini` 将配置数据值收敛为`string`、`number`、`boolean`、`float`共四种，这样即可以实现自动数据类型识别和推断，又可以简化API。
 
 ```ini
 # 布尔值推断 - 识别 true/false
@@ -164,23 +233,23 @@ message = "hello"     # string (双引号)
 title = 'world'       # string (单引号)
 ```
 
+### 读取配置值
+
+`zini`提供四个基本的类型方法来读取配置值.
+
 **Zig 代码示例：**
 
 ```zig
-const std = @import("std");
-const Ini = @import("zini").Ini;
-
-pub fn main() !void {
     const allocator = std.heap.page_allocator;
-
-    var ini = Ini.init(allocator);
+    var ini = Ini.default(allocator);
     defer ini.deinit();
-
     try ini.loadFromString(
         \\debug = true
         \\port = 8080
         \\rate = 3.14
         \\name = myapp
+        \\[server]
+        \\timeout = 5000
     );
 
     // 使用 4 个基本 getter 方法
@@ -188,193 +257,61 @@ pub fn main() !void {
     const port: i64 = try ini.getNumber("port");
     const rate: f64 = try ini.getFloat("rate");
     const name: []const u8 = try ini.getString("name");
-
-    std.debug.print("debug: {}, port: {}, rate: {d:.2}, name: {s}\n",
-        .{debug, port, rate, name});
-}
+    const timeout: i64 = try ini.getNumber("server.timeout");
 ```
 
-### 多行字符串支持
+- 支持通过点号语法访问 `Section` 中的配置项，如`ini.getString('server.timeout')`。
+- 当`key`不存在时，`getBoolean`、`getNumber`、`getBoolean`、`getFloat`总是返回空，不会触发错误。因此最佳实践是，总是指定为配置项指定默认值。或者通过`hasItem`方法来判断是否存在指定的key
 
-支持 Markdown 风格的多行字符串，用三个反引号包裹。
+### 注释支持
 
-**INI 文件示例：**
+支持行注释和行尾注释,注释符号`#`或`;`
 
-````ini
-# 电子邮件模板
-email_template = ```
-Dear {{name}},
+```ini
+# 这是井号注释
+; 这是分号注释
 
-Thank you for your purchase!
+[config]
+# 全局配置项
+timeout = 30   # 这是行尾注释
 
-Best regards,
-The Team
+; 数据库配置
+; host = localhost
+port = 5432
 ```
-````
 
-**Zig 代码示例：**
+**重点**
+
+- 默认情况下，`zini`不会加载注释内容，并且在保存时可以保持注释不会丢失。
+- 可以在初始化时，通过`ini.options`的`LoadDescription`标识来指定是否加载注释，然后可以`item.description`访问注释内容。
 
 ```zig
-const email_template = try ini.getString("email_template");
-const terms = try ini.getString("terms_of_service");
+  const allocator = testing.allocator;
 
-// 字符串会保持原始的换行和格式
-std.debug.print("Email:\n{s}\n", .{email_template});
-std.debug.print("Terms:\n{s}\n", .{terms});
+    const content =
+        \\ # 这是description注释
+        \\ # @title 配置标题
+        \\ key1 = value1
+        \\ key2 = value2
+    ;
+
+    // 加载description
+    var ini1 = Ini.initWithOptions(allocator, IniOptions.withDescription());
+    defer ini1.deinit();
+
+    const item = ini1.getItem("key1").?;
+    try testing.expect(item.description != null);
 ```
-
-### 转换器系统
-
-zini 提供了强大的转换器系统，支持配置值的双向转换。
-
-**转换器系统功能：**
-
-- **双向转换**：支持读取时转换和保存时还原
-- **类型扩展**：可以为特殊类型提供自定义解析逻辑
-- **值标准化**：统一配置值的格式和表示
-- **内置转换器**：提供日志级别、数据库引擎等常见转换器
-
-**使用示例：**
-
-```zig
-const std = @import("std");
-const Ini = @import("zini").Ini;
-const Converter = @import("zini").Converter;
-
-pub fn main() !void {
-    const allocator = std.heap.page_allocator;
-
-    var ini = Ini.init(allocator);
-    defer ini.deinit();
-
-    // 定义日志级别转换器
-    const log_level_converter = struct {
-        fn from(input: []const u8) ![]const u8 {
-            // 将 debug/info/warn/error 转换为 1/2/3/4
-            if (std.mem.eql(u8, input, "debug")) return "1";
-            if (std.mem.eql(u8, input, "info")) return "2";
-            if (std.mem.eql(u8, input, "warn")) return "3";
-            if (std.mem.eql(u8, input, "error")) return "4";
-            return error.InvalidValue;
-        }
-
-        fn to(input: []const u8) ![]const u8 {
-            // 将 1/2/3/4 转换回 debug/info/warn/error
-            const num = try std.fmt.parseInt(u8, input, 10);
-            return switch (num) {
-                1 => "debug",
-                2 => "info",
-                3 => "warn",
-                4 => "error",
-                else => error.InvalidValue,
-            };
-        }
-    };
-
-    const converter = Converter{
-        .from = log_level_converter.from,
-        .to = log_level_converter.to,
-    };
-
-    // 为配置项设置转换器
-    if (ini.items.getPtr("log_level")) |item| {
-        item.converter = &converter;
-    }
-}
-```
-
-### 验证器系统
-
-zini 提供了极简高效的验证框架，支持自定义验证规则。
-
-**验证器系统功能：**
-
-- **极简架构** - 验证器只是纯函数指针，零额外开销
-- **清晰职责** - Item 知道自己配置了哪些验证器
-- **内存优化** - 混合实例化策略，按需分配
-- **灵活验证** - 支持全局验证器和指定验证器组合
-
-**验证器类型定义：**
-
-```zig
-/// 验证器函数指针类型
-pub const Validator = *const fn (value: []const u8, item: *const Item) bool;
-```
-
-**使用示例：**
-
-```zig
-const std = @import("std");
-const Ini = @import("zini").Ini;
-
-pub fn main() !void {
-    const allocator = std.heap.page_allocator;
-
-    var ini = Ini.init(allocator);
-    defer ini.deinit();
-
-    // 定义端口范围验证器（纯函数）
-    fn portRangeValidator(value: []const u8, item: *const Item) bool {
-        _ = item;
-        const port = std.fmt.parseInt(u16, value, 10) catch return false;
-        return port >= 1024 and port <= 65535;
-    }
-
-    // 添加验证器（直接传递函数指针）
-    try ini.validators.add("port_range", portRangeValidator);
-
-    // 为配置项指定验证器
-    try ini.set("port", "8080");
-    if (ini.items.getPtr("port")) |item| {
-        const names = try allocator.alloc([]const u8, 1);
-        names[0] = try allocator.dupe(u8, "port_range");
-        item.validators = names;
-    }
-
-    // 验证自动执行
-    try ini.set("port", "9000");  // 验证通过
-    try ini.set("port", "100");   // 验证失败，抛出错误
-}
-```
-
-**内置验证器：**
-
-zini 自动包含一个全局 `choiceValidator`，验证值是否在 `@choices` 列表中：
-
-```zig
-// 自动生效，无需手动添加
-// @choices admin,user,guest
-role = admin  // 验证通过
-role = root   // 验证失败
-```
-
-**全局验证器：**
-
-使用 `"*"` 作为名称添加全局验证器（对所有配置项生效）：
-
-```zig
-// 添加全局验证器
-try ini.validators.add("*", globalValidator);
-```
-
-**验证流程：**
-
-1. 先执行全局验证器（如 choiceValidator）
-2. 再执行 Item 指定的验证器（通过 `item.validators` 设置）
-3. 全部返回 true 才算验证通过
 
 ### 元数据支持
 
-zini 支持丰富的元数据功能，可以为配置项添加标题、描述、默认值和选择项。
+`zini` 支持在注释中使用`# @<名称> <值>`为配置项额外添加标题、描述、默认值和选择项等元数据。
 
 **支持的元数据：**
 
-- **普通注释** - 配置项的描述信息（需要启用描述加载）
 - **`@title`** - 配置项的标题
 - **`@default`** - 配置项的默认值（用于 reset() 方法）
 - **`@choices`** - 配置项的可选值列表（逗号分隔）
-
-**INI 文件示例：**
 
 ```ini
 # 数据库连接超时时间（秒）
@@ -425,69 +362,180 @@ pub fn main() !void {
 
     // 获取配置项的完整信息
     if (ini.getItem("timeout")) |item| {
-        std.debug.print("Key: {s}\n", .{schema.key});
-        std.debug.print("Value: {s}\n", .{schema.value});
-        std.debug.print("Type: {}\n", .{schema.datatype});
-
-        if (schema.title) |title| {
-            std.debug.print("Title: {s}\n", .{title});
-        }
-
-        if (schema.description) |desc| {
-            std.debug.print("Description: {s}\n", .{desc});
-        }
-
-        if (schema.default) |default| {
-            std.debug.print("Default: {s}\n", .{default});
-        }
-
-        if (schema.choices) |choices| {
-            std.debug.print("Choices: {s}\n", .{choices});
-        }
+        std.debug.print("Title: {s}\n", item.title);
+        std.debug.print("Default: {s}\n", item.default);
+        std.debug.print("Choices: {s}\n", item.choices);
+        std.debug.print("Description: {s}\n", item.description);
     }
 }
 ```
 
-### 内存优化
+- **注意**：默认情况下，`description`不加载以节约内存，但是保存时会保留注释内容。
 
-zini 提供了灵活的内存管理选项，根据需求选择合适的模式。
+### 多行字符串支持
 
-**默认模式（内存优化）：**
+支持 `Markdown` 风格的多行字符串，当值是多行字符串时，可以用三个反引号包裹。
+
+````ini
+# 电子邮件模板
+email_template = ```
+Dear {{name}},
+
+Thank you for your purchase!
+
+Best regards,
+The Team
+```
+````
+
+**Zig 代码示例：**
 
 ```zig
-// 不加载 description，节省内存
-var ini = Ini.init(allocator);
-defer ini.deinit();
+const email_template = try ini.getString("email_template");
+const terms = try ini.getString("terms_of_service");
+
+// 字符串会保持原始的换行和格式
+std.debug.print("Email:\n{s}\n", .{email_template});
+std.debug.print("Terms:\n{s}\n", .{terms});
 ```
 
-**完整模式（包含所有元数据）：**
+### 默认值
+
+作为配置文件，推荐所有配置项均应提供默认值。`zini`支持通过以下方式来提供默认值。
+
+- **代码指定**
+
+直接在代码中指定每个配置项的默认值。
 
 ```zig
-// 加载所有元数据，包括 description
-var ini = Ini.initWithOptions(allocator, IniOptions.withDescription());
-defer ini.deinit();
+ const allocator = std.heap.page_allocator;
+
+    // 从配置数组初始化（推荐提供default）
+    const items = [_]Ini.Item{
+        .{ .key = "port", .default = "8080" },
+        .{ .key = "debug", .default = "false" },
+        .{ .key = "host", .default = "localhost" },
+        .{ .key = "server.timeout", .default = "3000" },
+    };
+    var ini = try Ini.init(allocator, &items);
+    defer ini.deinit();
+    // 再从文件加载（覆盖配置，但保留 default 值）
+    try ini.load("config.ini");
 ```
 
-**何时使用哪个模式：**
+- **通过元数据指定**
 
-- **默认模式** - 适用于大多数场景，只需要配置值和基本元数据
-- **完整模式** - 需要配置项的详细描述信息时使用
-
-### 注释支持
-
-支持行注释和行尾注释,注释符号`#`或`;`
+在配置项前的注释中通过`@default`元数据指定。
 
 ```ini
-# 这是井号注释
-; 这是分号注释
+# 服务器监听端口
+# @title 监听端口
+# @default 8080
+port = 9000
+```
 
-[config]
-# 全局配置项
-timeout = 30   # 这是行尾注释
+- **单独指定**
 
-; 数据库配置
-; host = localhost
-port = 5432
+```zig
+var item = ini.getItem("server.timeout")
+item.default="9000"
+```
+
+**注意**：
+
+- 当执行`ini.save`时，会将`@default`写入到ini文件中，以便加载时能自动生效。
+
+### 配置重置功能
+
+当配置项指定了默认值后，可以通过`reset`方法进行重置，快速恢复所有配置为默认值。
+
+**基本用法：**
+
+```zig
+const std = @import("std");
+const Ini = @import("zini").Ini;
+
+pub fn main() !void {
+    const allocator = std.heap.page_allocator;
+
+    var ini = Ini.default(allocator);
+    defer ini.deinit();
+
+    const content =
+        \\# @default 8080
+        \\port = 9000
+        \\
+        \\# @default localhost
+        \\host = remotehost
+        \\
+        \\# @default true
+        \\debug = false
+    ;
+
+    try ini.loadFromString(content);
+
+    // 当前值
+    std.debug.print("重置前:\n", .{});
+    std.debug.print("  port: {}\n", .{try ini.getNumber("port")});
+    std.debug.print("  host: {s}\n", .{try ini.getString("host")});
+    std.debug.print("  debug: {}\n", .{try ini.getBoolean("debug")});
+
+    // 重置所有配置为默认值
+    try ini.reset();
+
+    // 默认值
+    std.debug.print("重置后:\n", .{});
+    std.debug.print("  port: {}\n", .{try ini.getNumber("port)});
+    std.debug.print("  host: {s}\n", .{try ini.getString("host")});
+    std.debug.print("  debug: {}\n", .{try ini.getBoolean("debug")});
+}
+```
+
+### 值选项验证
+
+使用 `@choices` 元数据可以限制配置项的可选值范围，确保配置值在预期的选项列表中。
+
+**功能特性：**
+
+- **自动验证** - zini 自动验证配置值是否在 `@choices` 列表中
+- **错误提示** - 无效值会触发验证错误，帮助发现配置问题
+- **类型安全** - 配置时即进行验证，而非运行时才发现错误
+
+**INI 文件示例：**
+
+```ini
+# @choices admin,user,guest
+role = admin
+
+# @choices debug,info,warn,error
+log_level = error
+
+# @choices localhost,127.0.0.1,192.168.1.1
+db_host = localhost
+
+# @choices small,medium,large
+instance_type = medium
+```
+
+**Zig 代码示例：**
+
+```zig
+const std = @import("std");
+const Ini = @import("zini").Ini;
+
+pub fn main() !void {
+    const allocator = std.heap.page_allocator;
+
+    var ini = Ini.default(allocator);
+    defer ini.deinit();
+
+    // 有效值：验证通过
+    try ini.set("role", "admin");
+
+    // 无效值：触发验证错误
+    // try ini.set("role", "root"); // 错误：不在 choices 列表中
+}
+
 ```
 
 ### Section 操作
@@ -522,13 +570,62 @@ const db_port = try ini.getNumber("database.port");
 ini.remove("database.old_key");
 ```
 
-### 配置重置功能
+### 数据校验
 
-zini 提供了强大的配置重置功能，可以快速恢复所有配置为默认值。
+`zini` 提供了极简高效的验证框架，支持自定义验证规则，确保配置值的正确性。
 
-- 配置项使用`@default <默认值>`来指定默认值。
+**验证器类型定义：**
 
-**基本用法：**
+```zig
+/// 验证器函数指针类型
+pub const Validator = *const fn (value: []const u8, item: *const Item) bool;
+```
+
+**添加验证器的两种方式：**
+
+**1. 添加全局验证器（推荐用于通用规则）：**
+
+```zig
+// 定义验证器函数
+fn portRangeValidator(value: []const u8, item: *const Item) bool {
+    _ = item;
+    const port = std.fmt.parseInt(u16, value, 10) catch return false;
+    return port >= 1024 and port <= 65535;
+}
+
+// 添加到全局验证器注册表
+try ini.validators.add("port_range", portRangeValidator);
+
+// 添加全局验证器（对所有配置项生效）
+try ini.validators.add("*", globalValidator);
+```
+
+**2. 为特定配置项添加验证器：**
+
+```zig
+// 定义端口范围验证器
+fn portRangeValidator(value: []const u8, item: *const Item) bool {
+    _ = item;
+    const port = std.fmt.parseInt(u16, value, 10) catch return false;
+    return port >= 1024 and port <= 65535;
+}
+
+// 注册验证器
+try ini.validators.add("port_range", portRangeValidator);
+
+// 为特定配置项指定验证器
+try ini.set("port", "8080");
+if (ini.getItem("port")) |item| {
+    try item.addValidator("port_range");
+}
+
+// 或使用便捷方法：验证器自动注册
+if (ini.getItem("port")) |item| {
+    try item.addValidator("port_range", portRangeValidator);
+}
+```
+
+**完整使用示例：**
 
 ```zig
 const std = @import("std");
@@ -537,36 +634,87 @@ const Ini = @import("zini").Ini;
 pub fn main() !void {
     const allocator = std.heap.page_allocator;
 
-    var ini = Ini.init(allocator);
+    var ini = Ini.default(allocator);
     defer ini.deinit();
 
-    const content =
-        \\# @default 8080
-        \\port = 9000
-        \\
-        \\# @default localhost
-        \\host = remotehost
-        \\
-        \\# @default true
-        \\debug = false
-    ;
+    // 定义验证器
+    fn portRangeValidator(value: []const u8, item: *const Item) bool {
+        _ = item;
+        const port = std.fmt.parseInt(u16, value, 10) catch return false;
+        return port >= 1024 and port <= 65535;
+    }
 
-    try ini.loadFromString(content);
+    // 注册全局验证器
+    try ini.validators.add("port_range", portRangeValidator);
 
-    // 当前值
-    std.debug.print("重置前:\n", .{});
-    std.debug.print("  port: {}\n", .{try ini.getNumber("port")});
-    std.debug.print("  host: {s}\n", .{try ini.getString("host")});
-    std.debug.print("  debug: {}\n", .{try ini.getBoolean("debug")});
+    // 为配置项添加验证器
+    try ini.set("port", "8080");
+    if (ini.getItem("port")) |item| {
+        try item.addValidator("port_range");
+    }
+    // 验证自动执行
+    try ini.set("port", "9000");  // ✅ 验证通过
+    try ini.set("port", "100");   // ❌ 验证失败，抛出错误
+}
+```
 
-    // 重置所有配置为默认值
-    try ini.reset();
+### 转换器系统
 
-    // 默认值
-    std.debug.print("重置后:\n", .{});
-    std.debug.print("  port: {}\n", .{try ini.getNumber("port)});
-    std.debug.print("  host: {s}\n", .{try ini.getString("host")});
-    std.debug.print("  debug: {}\n", .{try ini.getBoolean("debug")});
+zini 提供了强大的转换器系统，支持配置值的双向转换。
+
+**转换器系统功能：**
+
+- **双向转换**：支持读取时转换和保存时还原
+- **类型扩展**：可以为特殊类型提供自定义解析逻辑
+- **值标准化**：统一配置值的格式和表示
+- **内置转换器**：提供日志级别、数据库引擎等常见转换器
+
+**使用示例：**
+
+```zig
+const std = @import("std");
+const Ini = @import("zini").Ini;
+const Converter = @import("zini").Converter;
+
+pub fn main() !void {
+    const allocator = std.heap.page_allocator;
+
+    var ini = Ini.default(allocator);
+    defer ini.deinit();
+
+    // 定义日志级别转换器
+    const log_level_converter = struct {
+        fn from(input: []const u8) ![]const u8 {
+            // 将 debug/info/warn/error 转换为 1/2/3/4
+            if (std.mem.eql(u8, input, "debug")) return "1";
+            if (std.mem.eql(u8, input, "info")) return "2";
+            if (std.mem.eql(u8, input, "warn")) return "3";
+            if (std.mem.eql(u8, input, "error")) return "4";
+            return error.InvalidValue;
+        }
+
+        fn to(input: []const u8) ![]const u8 {
+            // 将 1/2/3/4 转换回 debug/info/warn/error
+            const num = try std.fmt.parseInt(u8, input, 10);
+            return switch (num) {
+                1 => "debug",
+                2 => "info",
+                3 => "warn",
+                4 => "error",
+                else => error.InvalidValue,
+            };
+        }
+    };
+
+    const converter = Converter{
+        .from = log_level_converter.from,
+        .to = log_level_converter.to,
+    };
+
+    // 为配置项设置转换器
+    if (ini.getItem("log_level")) |item| {
+        item.converter = &converter;
+    }
 }
 ```
 
@@ -575,11 +723,14 @@ pub fn main() !void {
 ### Ini 结构体
 
 ```zig
-/// 创建默认 INI 解析器（不加载 description）
-pub fn init(allocator: Allocator) Ini
+/// 创建空 INI 解析器（不加载 description）
+pub fn default(allocator: Allocator) Ini
 
 /// 创建带选项的 INI 解析器
 pub fn initWithOptions(allocator: Allocator, options: IniOptions) Ini
+
+/// 从 Items 数组初始化（推荐使用，支持自动类型推断）
+pub fn init(allocator: Allocator, items: []const Item) !Ini
 
 /// 释放资源
 pub fn deinit(self: *Ini) void
@@ -640,11 +791,15 @@ pub fn removeItem(self: *Ini, key: []const u8) bool
 /// 获取完整的 Item 信息（包含元数据）
 pub fn getItem(self: *const Ini, key: []const u8) ?*const Item
 
-/// 添加配置项
+/// 添加配置项（支持自动类型推断）
+/// 当 item.datatype 为 null 或 .string 时，自动根据值内容推断类型
+/// 显式指定其他类型（.boolean、.number、.float）时保留该类型
 pub fn addItem(self: *Ini, key: []const u8, item: Item) !void
 
-/// 遍历所有 Item（全局 + 所有 sections）
-pub fn forEach(self: *const Ini, context_ptr: anytype, comptime callback: anytype) void
+/// 遍历指定范围的 Item
+/// section: 迭代范围（"*"=全部，""=全局，"section_name"=指定section）
+/// callback: 回调函数，接收 Item 指针和 section 名称（null 表示全局）
+pub fn forEach(self: *const Ini, section: []const u8, callback: anytype) void
 
 ```
 
